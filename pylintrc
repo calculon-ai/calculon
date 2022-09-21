@@ -1,0 +1,16 @@
+[MESSAGES CONTROL]
+disable=locally-disabled,
+	too-many-branches,
+	too-many-instance-attributes,
+	too-many-return-statements,
+	duplicate-code,
+	too-many-arguments,
+	no-method-argument
+
+[FORMAT]
+indent-string='  '
+indent-after-paren=2
+
+[DESIGN]
+min-public-methods=0
+max-public-methods=9999
