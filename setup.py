@@ -40,7 +40,7 @@ def find_version(*file_paths):
 setup(
   name='calculon',
   version=find_version('calculon', '__init__.py'),
-  description='',
+  description='Co-design for large scale parallel applications',
   author='Michael Isaev',
   author_email='michael.v.isaev@gmail.com',
   license='Apache 2',
