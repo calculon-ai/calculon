@@ -17,7 +17,17 @@ $> calculon <args>
 If Calculon is NOT installed, you can run it locally like this:
 
 ``` sh
-$> PYTHONPATH=. ./bin/calculon -h
+$> PYTHONPATH=. ./bin/calculon <args>
+```
+
+Calculon is a hierarchical command line. To see the commands it accepts, use `--help` or `-h`:
+``` sh
+$> calculon -h
+```
+
+You can also see how to use any command specifically but using `--help` or `-h` on the command:
+``` sh
+$> calculon megatron -h
 ```
 
 ## Megatron Example
