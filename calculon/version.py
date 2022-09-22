@@ -24,7 +24,7 @@ class Version(calculon.CommandLine):
   @staticmethod
   def create_parser(subparser):
     sp = subparser.add_parser(Version.NAME, aliases=Version.ALIASES,
-                              help='Shows the version')
+                              help='show the version and exit')
     sp.set_defaults(func=Version.run_command)
 
   @staticmethod

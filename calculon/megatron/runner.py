@@ -27,7 +27,7 @@ class Runner(calculon.CommandLine):
   @staticmethod
   def create_parser(subparser):
     sp = subparser.add_parser(Runner.NAME, aliases=Runner.ALIASES,
-                              help='Runs a single megatron calculation')
+                              help='run a single megatron calculation')
     sp.set_defaults(func=Runner.run_command)
     sp.add_argument('application', type=str,
                     help='File path to application configuration')
