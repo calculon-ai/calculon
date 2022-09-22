@@ -1,0 +1,18 @@
+{
+  "matrix_tflops": 1000,
+  "matrix_flop_eff": 0.9,
+  "vector_tflops": 120,
+  "vector_flop_eff": 0.9,
+  "mem_tier1_bw": 3072,
+  "mem_tier1_cap": 80,
+  "mem_tier1_eff": 0.9,
+  "mem_tier2_bw": 512,
+  "mem_tier2_cap": 1024,
+  "mem_tier2_eff": 0.9,
+  "net_tier1_bw": 450,
+  "net_tier1_size": 32,
+  "net_tier1_eff": 0.8,
+  "net_tier2_bw": 50,
+  "net_tier2_size": 64,
+  "net_tier2_eff": 0.9
+}

@@ -1,0 +1,20 @@
+{
+  "num_procs": 65536,
+  "tensor_par": 32,
+  "pipeline_par": 32,
+  "data_par": 64,
+  "batch_size": 4096,
+  "minibatch_size": 1,
+  "datatype": "bfloat16",
+  "activation_recompute": "partial",
+  "pipeline_interleaving": 4,
+  "optimizer_sharding": true,
+  "in_network_allreduce": true,
+  "sequence_par": true,
+  "p2p_rs_ag": true,
+  "data_par_overlap": true,
+  "weight_offload": true,
+  "activations_offload": true,
+  "optimizer_offload": true,
+  "training": true
+}
