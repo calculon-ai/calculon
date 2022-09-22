@@ -25,7 +25,7 @@ Calculon is a hierarchical command line. To see the commands it accepts, use `--
 $> calculon -h
 ```
 
-You can also see how to use any command specifically but using `--help` or `-h` on the command:
+You can also see how to use any command specifically by using `--help` or `-h` on the command:
 ``` sh
 $> calculon megatron -h
 ```
