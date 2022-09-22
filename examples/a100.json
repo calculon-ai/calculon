@@ -10,7 +10,7 @@
   "mem_tier2_cap": 1024,
   "mem_tier2_eff": 0.9,
   "net_tier1_bw": 300,
-  "net_tier1_size": 32,
+  "net_tier1_size": 8,
   "net_tier1_eff": 0.8,
   "net_tier2_bw": 25,
   "net_tier2_size": 65536,
