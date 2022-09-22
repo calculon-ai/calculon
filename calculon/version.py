@@ -15,12 +15,22 @@
  * limitations under the License.
 """
 
-__version__ = '0.1.0'
+import calculon
 
-# Imports of this module
-from .command_line import CommandLine
-from .version import Version
-from .system import System
+class Version(calculon.CommandLine):
+  NAME = 'version'
+  ALIASES = ['v']
 
-# Importing submodules
-from .megatron import *
+  @staticmethod
+  def create_parser(subparser):
+    sp = subparser.add_parser(Version.NAME, aliases=Version.ALIASES,
+                              help='Shows the version')
+    sp.set_defaults(func=Version.run_command)
+
+  @staticmethod
+  def run_command(args):
+    # version is specified in __init__.py
+    print(calculon.__version__)
+
+
+calculon.CommandLine.register(Version)

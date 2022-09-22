@@ -15,12 +15,6 @@
  * limitations under the License.
 """
 
-__version__ = '0.1.0'
-
-# Imports of this module
-from .command_line import CommandLine
-from .version import Version
-from .system import System
-
-# Importing submodules
+from .layers import *
 from .megatron import *
+from .runner import Runner
