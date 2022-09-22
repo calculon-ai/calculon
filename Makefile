@@ -11,7 +11,7 @@ uninstall:
 	cat files.txt | xargs rm -rf
 
 clean:
-	rm -rf build dist calculon.egg-info calculon/*.pyc calculon/__pycache__ test/*.pyc test/__pycache__
+	rm -rf build dist calculon.egg-info calculon/*.pyc calculon/__pycache__ calculon/*/__pycache__ test/*.pyc test/__pycache__
 
 lint:
 	pylint -r n calculon
