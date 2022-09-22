@@ -46,5 +46,6 @@ setup(
   license='Apache 2',
   url='http://github.com/paragraph-sim/calculon',
   packages=['calculon'],
+  scripts=['bin/calculon'],
   install_requires=[],
 )
