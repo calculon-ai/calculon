@@ -19,8 +19,9 @@ __version__ = '0.1.0'
 
 # Imports of this module
 from .command_line import CommandLine
-from .version import Version
 from .system import System
+from .util import *
+from .version import Version
 
-# Importing submodules
+# Imports submodules
 from .megatron import *

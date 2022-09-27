@@ -15,6 +15,9 @@
  * limitations under the License.
 """
 
+from calculon import *
+
+
 class Layer:
   """
   A single layer of a neural network. Has weights, activation space,
@@ -52,49 +55,28 @@ class Layer:
     self.sw_config = {}     #change for class instance later
     self.needs_recompute = needs_recompute
     self.activation_reuse = activation_reuse
-    # Before bytets_per_element set by SW config, we operate with just
+    # Before bytes_per_element set by SW config, we operate with just
     # parameter count, setting bytes_per_element to 1
     self.bytes_per_element = 1
 
   @staticmethod
-  def _human_format(value, v_type):
-    step = 1
-    suffix = ''
-    if v_type == 'bytes':
-      step = 1024
-      suffix = 'B'
-    elif v_type == 'flops':
-      step = 1000
-      suffix = 'Ops'
-    else:
-      raise ValueError(
-        f"Type value should be 'bytes' or 'flops', given {v_type}")
-    labels = ['', 'K', 'M', 'G', 'T', 'P', 'E']
-    index = 0
-    for l in labels:
-      if value >= step:
-        value /= step
-        index += 1
-      else:
-        break
-    return "{0:.2f} {1}{2}".format(value, labels[index], suffix)
 
   def display_stats(self):
     stats = "Operation {0}:\n{1} FW flops, {2} FW bytes accessed,".format(
       self.name,
-      self._human_format(self.get_fw_flops(), 'flops'),
-      self._human_format(self.get_fw_mem_accessed(), 'bytes'))
+      human_format(self.get_fw_flops(), 'flops'),
+      human_format(self.get_fw_mem_accessed(), 'bytes'))
     stats += " FW AI: {0:.3f}\n".format(self.get_fw_arithmetic_intensity())
     stats += "{0} BW flops, {1} BW bytes accessed,".format(
-      self._human_format(self.get_bw_flops(), 'flops'),
-      self._human_format(self.get_bw_mem_accessed(), 'bytes'))
+      human_format(self.get_bw_flops(), 'flops'),
+      human_format(self.get_bw_mem_accessed(), 'bytes'))
     stats += " BW AI: {0:.3f}\n".format(self.get_bw_arithmetic_intensity())
     stats += "W: {0}, Act: {1}, WGrad: {2}, AGrad: {3}, Optim: {4}".format(
-      self._human_format(self.get_weight(), 'bytes'),
-      self._human_format(self.get_activation(), 'bytes'),
-      self._human_format(self.get_weight_grad(), 'bytes'),
-      self._human_format(self.get_activation_grad(), 'bytes'),
-      self._human_format(self.get_optim(), 'bytes'))
+      human_format(self.get_weight(), 'bytes'),
+      human_format(self.get_activation(), 'bytes'),
+      human_format(self.get_weight_grad(), 'bytes'),
+      human_format(self.get_activation_grad(), 'bytes'),
+      human_format(self.get_optim(), 'bytes'))
     print(stats)
 
   # setters related to SW config to consider data types, training flag, etc.

@@ -15,7 +15,7 @@
  * limitations under the License.
 """
 
-from calculon import System
+from calculon import *
 from .layers import *
 
 
@@ -335,13 +335,15 @@ class Megatron: # stems from class (ParaGraph)
         self.sys.net_tier1_eff * 1024 ** 3
 
   def _compute_minibatch_stats(self):
-    print("vector_throughput:", self._human_format(self.vector_throughput, 'throughput'))
-    print("matrix_throughput:", self._human_format(self.matrix_throughput, 'throughput'))
-    print("mem_throughput:", self._human_format(self.mem_throughput, 'bandwidth'))
-    print("offload_throughput:", self._human_format(self.offload_throughput, 'bandwidth'))
-    print("tp_net_throughput:", self._human_format(self.tp_net_throughput, 'bandwidth'))
-    print("pp_net_throughput:", self._human_format(self.pp_net_throughput, 'bandwidth'))
-    print("dp_net_throughput:", self._human_format(self.dp_net_throughput, 'bandwidth'))
+    """
+    print("vector_throughput:", human_format(self.vector_throughput, 'throughput'))
+    print("matrix_throughput:", human_format(self.matrix_throughput, 'throughput'))
+    print("mem_throughput:", human_format(self.mem_throughput, 'bandwidth'))
+    print("offload_throughput:", human_format(self.offload_throughput, 'bandwidth'))
+    print("tp_net_throughput:", human_format(self.tp_net_throughput, 'bandwidth'))
+    print("pp_net_throughput:", human_format(self.pp_net_throughput, 'bandwidth'))
+    print("dp_net_throughput:", human_format(self.dp_net_throughput, 'bandwidth'))
+    """
     for layer in self.megatron_block:
       flops_throughput = self.vector_throughput
       if isinstance(layer, Linear):
@@ -368,26 +370,28 @@ class Megatron: # stems from class (ParaGraph)
       self.gpu_weight_grad_space += layer.get_weight_grad()
       self.gpu_act_grad_space += layer.get_activation_grad()
       self.gpu_optimizer_space += layer.get_optim()
-      print(layer.name, 'FW flops:', self._human_format(layer.get_fw_flops(), 'flops'))
+      """
+      print(layer.name, 'FW flops:', human_format(layer.get_fw_flops(), 'flops'))
       print(layer.name, 'FW flops time:', self.minibatch_fw_flops_time)
-      print(layer.name, 'FW mem:', self._human_format(layer.get_fw_mem_accessed(), 'bytes'))
+      print(layer.name, 'FW mem:', human_format(layer.get_fw_mem_accessed(), 'bytes'))
       print(layer.name, 'FW mem time:', self.minibatch_fw_mem_time)
-      print(layer.name, 'BW flops:', self._human_format(layer.get_bw_flops(), 'flops'))
+      print(layer.name, 'BW flops:', human_format(layer.get_bw_flops(), 'flops'))
       print(layer.name, 'BW flops time:', self.minibatch_bw_flops_time)
-      print(layer.name, 'BW mem:', self._human_format(layer.get_bw_mem_accessed(), 'bytes'))
+      print(layer.name, 'BW mem:', human_format(layer.get_bw_mem_accessed(), 'bytes'))
       print(layer.name, 'BW mem time:', self.minibatch_bw_mem_time)
       print(layer.name, 'Recompute time:', self.minibatch_recompute_time)
-      print(layer.name, 'Recompute mem saving:', self._human_format(self.minibatch_recompute_mem_saving, 'bytes'))
-      print(layer.name, 'Weight:', self._human_format(layer.get_weight(), 'bytes'))
-      print(layer.name, 'Act:', self._human_format(layer.get_activation(), 'bytes'))
-      print(layer.name, 'Weight grad:', self._human_format(layer.get_weight_grad(), 'bytes'))
-      print(layer.name, 'Act grad:', self._human_format(layer.get_activation_grad(), 'bytes'))
-      print(layer.name, 'Optim:', self._human_format(layer.get_optim(), 'bytes'))
-      print(layer.name, 'Incremental Weight:', self._human_format(self.gpu_weight_space, 'bytes'))
-      print(layer.name, 'Incremental Act:', self._human_format(self.gpu_act_space, 'bytes'))
-      print(layer.name, 'Incremental Weight grad:', self._human_format(self.gpu_weight_grad_space, 'bytes'))
-      print(layer.name, 'Incremental Act grad:', self._human_format(self.gpu_act_grad_space, 'bytes'))
-      print(layer.name, 'Incremental Optim:', self._human_format(self.gpu_optimizer_space, 'bytes'))
+      print(layer.name, 'Recompute mem saving:', human_format(self.minibatch_recompute_mem_saving, 'bytes'))
+      print(layer.name, 'Weight:', human_format(layer.get_weight(), 'bytes'))
+      print(layer.name, 'Act:', human_format(layer.get_activation(), 'bytes'))
+      print(layer.name, 'Weight grad:', human_format(layer.get_weight_grad(), 'bytes'))
+      print(layer.name, 'Act grad:', human_format(layer.get_activation_grad(), 'bytes'))
+      print(layer.name, 'Optim:', human_format(layer.get_optim(), 'bytes'))
+      print(layer.name, 'Incremental Weight:', human_format(self.gpu_weight_space, 'bytes'))
+      print(layer.name, 'Incremental Act:', human_format(self.gpu_act_space, 'bytes'))
+      print(layer.name, 'Incremental Weight grad:', human_format(self.gpu_weight_grad_space, 'bytes'))
+      print(layer.name, 'Incremental Act grad:', human_format(self.gpu_act_grad_space, 'bytes'))
+      print(layer.name, 'Incremental Optim:', human_format(self.gpu_optimizer_space, 'bytes'))
+      """
     if self.exe.tensor_par > 1:
       if self.exe.sequence_par or self.exe.p2p_rs_ag:
         self.minibatch_fw_tp_size = 2*2 * self.bytes_per_element * \
@@ -607,35 +611,6 @@ class Megatron: # stems from class (ParaGraph)
   def get_total_optimizer_space(self):
     return self.exe.num_procs * self.get_gpu_optimizer_space()
 
-  @staticmethod
-  def _human_format(value, v_type):
-    step = 1
-    suffix = ''
-    if v_type == 'bytes':
-      step = 1024
-      suffix = 'B'
-    elif v_type == 'bandwidth':
-      step = 1024
-      suffix = 'B/s'
-    elif v_type == 'flops':
-      step = 1000
-      suffix = 'OP'
-    elif v_type == 'throughput':
-      step = 1000
-      suffix = 'OP/s'
-    else:
-      raise ValueError(
-        "Type value should be 'bytes' or 'flops' or 'bandwidth' or 'throughput', given {}".format(v_type))
-    labels = ['', 'K', 'M', 'G', 'T', 'P', 'E']
-    index = 0
-    for l in labels:
-      if value >= step:
-        value /= step
-        index += 1
-      else:
-        break
-    return "{0:.2f} {1}{2}".format(value, labels[index], suffix)
-
   def display_stats(self):
     stats = "" \
       f"Model {self.app.name}: {self.app.num_layers} layers, " \
@@ -644,13 +619,13 @@ class Megatron: # stems from class (ParaGraph)
       f"DP={self.exe.data_par}, {self.layers_per_proc} layers per processor\n" \
       f"SW config: {self.exe};\n" \
       f"HW config: {self.sys};\n" \
-      f"Weights: {self._human_format(self.get_gpu_weight_space(), 'bytes')};\n" \
-      f"Act: {self._human_format(self.get_gpu_act_space(), 'bytes')};\n" \
-      f"Act CP: {self._human_format(self.get_gpu_act_checkpoint_size(), 'bytes')};\n" \
-      f"Act grad: {self._human_format(self.get_gpu_act_grad_space(), 'bytes')};\n" \
-      f"Weight grad: {self._human_format(self.get_gpu_weight_grad_space(), 'bytes')};\n" \
-      f"Optim space: {self._human_format(self.get_gpu_optimizer_space(), 'bytes')};\n" \
-      f"Total mem requirements: {self._human_format(self.get_gpu_mem_requirements(), 'bytes')};\n" \
+      f"Weights: {human_format(self.get_gpu_weight_space(), 'bytes')};\n" \
+      f"Act: {human_format(self.get_gpu_act_space(), 'bytes')};\n" \
+      f"Act CP: {human_format(self.get_gpu_act_checkpoint_size(), 'bytes')};\n" \
+      f"Act grad: {human_format(self.get_gpu_act_grad_space(), 'bytes')};\n" \
+      f"Weight grad: {human_format(self.get_gpu_weight_grad_space(), 'bytes')};\n" \
+      f"Optim space: {human_format(self.get_gpu_optimizer_space(), 'bytes')};\n" \
+      f"Total mem requirements: {human_format(self.get_gpu_mem_requirements(), 'bytes')};\n" \
       f"Batch FW time: {self.get_fw_time():.2f};\n" \
       f"Batch BW time: {self.get_bw_time():.2f};\n" \
       f"Batch recompuet time: {self.get_recompute_time():.2f};\n" \
@@ -659,7 +634,7 @@ class Megatron: # stems from class (ParaGraph)
       f"Batch PP comm time: {self.get_pp_comm_time():.2f};\n" \
       f"Batch DP comm time: {self.get_dp_comm_time():.2f};\n" \
       f"Batch total time: {self.get_total_time():.2f};\n" \
-      f"Total Flops: {self._human_format(self.get_useful_flops(), 'flops')};\n" \
+      f"Total Flops: {human_format(self.get_useful_flops(), 'flops')};\n" \
       f"Compute efficiency: {self.get_compute_efficiency()*100:.2f}%;\n" \
       f"System eficiency: {self.get_system_efficiency()*100:.2f}%;\n" \
       f"Total efficiency: {self.get_total_efficiency()*100:.2f}%;\n"
