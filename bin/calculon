@@ -19,7 +19,10 @@
 
 import argparse
 import calculon
+import logging
 import sys
+
+
 
 
 if __name__ == '__main__':
@@ -28,6 +31,10 @@ if __name__ == '__main__':
   # Creates an argparser and subparsers.
   desc = 'Calculon: Co-design for large scale parallel applications'
   ap = argparse.ArgumentParser(description=desc)
+  ap.add_argument('-l', '--log', default='-',
+                  help='Sets the log file, or - for stdout (default)')
+  ap.add_argument('-v', '--verbosity', default='INFO',
+                  help='Sets the logging level (see logging docs)')
   sp = ap.add_subparsers(title='commands', dest='command',
                          description='commands available in Calculon',
                          help='the command')
@@ -37,6 +44,15 @@ if __name__ == '__main__':
   for cls in calculon.CommandLine.command_lines():
     cls.create_parser(sp)
 
-  # Parse the args and call the corresponding command function
+  # Parses the args and creates the logger
   args = ap.parse_args()
-  sys.exit(args.func(args))
+  logger = logging.getLogger()
+  if args.log == '-':
+    logger.addHandler(logging.StreamHandler(stream=sys.stdout))
+  else:
+    fd = open(args.log, 'w')
+    logger.addHandler(logging.StreamHandler(stream=fd))
+  logger.setLevel(args.verbosity)
+
+  # Calls the corresponding command function
+  sys.exit(args.func(logger, args))

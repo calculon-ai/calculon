@@ -16,6 +16,7 @@
 """
 
 import json
+import logging
 
 import calculon
 from calculon.megatron import *
@@ -37,7 +38,7 @@ class Runner(calculon.CommandLine):
                     help='File path to system configuration')
 
   @staticmethod
-  def run_command(args):
+  def run_command(logger, args):
     with open(args.application, 'r') as fd:
       app_json = json.load(fd)
     with open(args.execution, 'r') as fd:
@@ -45,7 +46,7 @@ class Runner(calculon.CommandLine):
     with open(args.system, 'r') as fd:
       sys_json = json.load(fd)
 
-    model = Megatron(Megatron.Application(app_json))
+    model = Megatron(Megatron.Application(app_json), logger)
     model.compile(Megatron.Execution(exe_json))
     model.run(System(sys_json))
     model.display_stats()

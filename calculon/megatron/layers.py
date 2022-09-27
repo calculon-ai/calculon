@@ -51,15 +51,12 @@ class Layer:
     # self.mem_offload_throughput = float('inf')
     # self.net_throughput = float('inf')
 
-    # Add SW config with optimizations and parallelization split
-    self.sw_config = {}     #change for class instance later
+    # Add optimizations and parallelization split
     self.needs_recompute = needs_recompute
     self.activation_reuse = activation_reuse
     # Before bytes_per_element set by SW config, we operate with just
     # parameter count, setting bytes_per_element to 1
     self.bytes_per_element = 1
-
-  @staticmethod
 
   def display_stats(self):
     stats = "Operation {0}:\n{1} FW flops, {2} FW bytes accessed,".format(
@@ -79,12 +76,13 @@ class Layer:
       human_format(self.get_optim(), 'bytes'))
     print(stats)
 
-  # setters related to SW config to consider data types, training flag, etc.
-  def set_sw_config(self, sw_config):
-    self.sw_config = sw_config
-
   def set_bytes_per_element(self, bytes_per_element):
     self.bytes_per_element = bytes_per_element
+
+  # Shard (distribute) optimizer and weight grads between data parallel nodes
+  def shard_optimizer(self, num_gpus):
+    self.weight_grads /= num_gpus
+    self.optim_space /= num_gpus
 
   # setters related to HW config
   # TODO get rid of them as we probably need only flops and bytes from layer
@@ -127,8 +125,12 @@ class Layer:
   #     mem_time =  self.get_fw_mem_accessed() / self.mem_throughput
   #     return compute_time + mem_time
 
+  # We add optimizer (Adam) computation to BW grads. The amount of flops is
+  # based on number of weight grads to accommodate for possible weight_grad
+  # sharding among data parallel nodes
   def get_bw_flops(self):
-    return self.bw_flops
+    optim_flops = self.weight_grads * 11
+    return self.bw_flops + optim_flops
 
   def get_bw_mem_accessed(self):
     fw_mem = self.get_fw_mem_accessed()
@@ -136,7 +138,7 @@ class Layer:
     # activation grads, input grads are equal to outtput size
     grad_mem = self.weight_grads + self.activation_grads + self.output_size
     grad_mem *= self.bytes_per_element
-    return fw_mem + grad_mem
+    return fw_mem + grad_mem + self.get_optim()
 
   def get_bw_arithmetic_intensity(self):
     if self.bw_flops == 0:
@@ -166,7 +168,7 @@ class Layer:
     return self.activation_grads * self.bytes_per_element
 
   def get_optim(self):
-    moments_size = self.optim_space * 8
+    moments_size = self.optim_space * 4
     # Keep 32-bits master copy of weights and grads, plus both moments (m,v)
     if self.bytes_per_element < 4:
       master_copy_size = (self.weight_grads + self.weight_space) * 4
@@ -190,21 +192,31 @@ class Linear(Layer):
   def __init__(self, name, batch_seq, c_in, c_out,
                needs_recompute=False, activation_reuse=False):
     m, n, k = batch_seq, c_in, c_out
-    super().__init__(name, fw_flops=2*m*n*k, bw_flops=2*2*m*n*k,
-                     inputs_size=m*n, output_size=m*k,
-                     weight_space=n*k, weight_grads=n*k,
-                     activation_space=m*k, activation_grads=m*n,
+    super().__init__(name,
+                     fw_flops=2*m*n*k,
+                     bw_flops=2*2*m*n*k,
+                     inputs_size=m*n,
+                     output_size=m*k,
+                     weight_space=n*k,
+                     weight_grads=n*k,
+                     activation_space=m*k,
+                     activation_grads=m*n,
+                     optim_space=2*n*k,
                      needs_recompute=needs_recompute,
                      activation_reuse=activation_reuse)
 
 
-class MatMul(Layer):
-  def __init__(self, name, size_a, contraction_size, size_b,
+class BatchMatMul(Layer):
+  def __init__(self, name, batch, size_a, contraction_size, size_b,
                needs_recompute=False, activation_reuse=False):
     m, n, k = size_a, contraction_size, size_b
-    super().__init__(name, fw_flops=2*m*n*k, bw_flops=2*2*m*n*k,
-                     inputs_size=m*n+n*k, output_size=m*k,
-                     activation_space=m*n+n*k, activation_grads=m*k,
+    super().__init__(name,
+                     fw_flops=batch*2*m*n*k,
+                     bw_flops=batch*2*2*m*n*k,
+                     inputs_size=batch*(m*n+n*k),
+                     output_size=batch*m*k,
+                     activation_space=batch*m*k,
+                     activation_grads=batch*(m*n+n*k),
                      needs_recompute=needs_recompute,
                      activation_reuse=activation_reuse)
 
@@ -214,10 +226,16 @@ class MatMul(Layer):
 class LinearNorm(Layer):
   def __init__(self, name, act_size, hidden,
                needs_recompute=False, activation_reuse=False):
-    super().__init__(name, fw_flops=9*act_size, bw_flops=21*act_size,
-                     inputs_size=act_size, output_size=act_size,
-                     activation_space=act_size, activation_grads=act_size,
-                     weight_space=2*hidden, weight_grads=2*hidden,
+    super().__init__(name,
+                     fw_flops=9*act_size,
+                     bw_flops=21*act_size,
+                     inputs_size=act_size,
+                     output_size=act_size,
+                     activation_space=act_size,
+                     activation_grads=act_size,
+                     weight_space=2*hidden,
+                     weight_grads=2*hidden,
+                     optim_space=2*2*hidden,
                      needs_recompute=needs_recompute,
                      activation_reuse=activation_reuse)
 
@@ -225,11 +243,16 @@ class LinearNorm(Layer):
 class DropOut(Layer):
   def __init__(self, name, act_size,
                needs_recompute=False, activation_reuse=False):
-    super().__init__(name, fw_flops=act_size, bw_flops=act_size,
-                     inputs_size=act_size, output_size=act_size,
-                     activation_space=act_size, activation_grads=act_size,
+    super().__init__(name,
+                     fw_flops=act_size,
+                     bw_flops=act_size,
+                     inputs_size=act_size,
+                     output_size=act_size,
+                     activation_space=act_size,
+                     activation_grads=act_size,
                      needs_recompute=needs_recompute,
                      activation_reuse=activation_reuse)
+
 
   # need to account for DropOut mask of bool type that takes 1 B per element
   # mask is the only DropOut activation
@@ -270,8 +293,11 @@ class GeLU(Layer):
 class SoftMax(Layer):
   def __init__(self, name, act_size,
                needs_recompute=False, activation_reuse=False):
-    super().__init__(name, fw_flops=5*act_size, bw_flops=8*act_size,
-                     inputs_size=act_size, output_size=act_size,
+    super().__init__(name,
+                     fw_flops=5*act_size,
+                     bw_flops=8*act_size,
+                     inputs_size=act_size,
+                     output_size=act_size,
                      activation_space=act_size,
                      activation_grads=act_size,
                      needs_recompute=needs_recompute,
@@ -283,8 +309,11 @@ class ElementWise(Layer):
   def __init__(self, name, operand1, operand2,
                needs_recompute=False, activation_reuse=False):
     act_size = max(operand1, operand2)
-    super().__init__(name, fw_flops=act_size, bw_flops=(operand1+operand2),
-                     inputs_size=(operand1+operand2), output_size=act_size,
+    super().__init__(name,
+                     fw_flops=act_size,
+                     bw_flops=(operand1+operand2),
+                     inputs_size=(operand1+operand2),
+                     output_size=act_size,
                      activation_space=act_size,
                      activation_grads=(operand1+operand2),
                      needs_recompute=needs_recompute,
@@ -296,11 +325,38 @@ class Fork(Layer):
   def __init__(self, name, act_size, num_users,
                needs_recompute=False, activation_reuse=False):
     self.num_users = num_users
-    super().__init__(name, fw_flops=0, bw_flops=num_users*act_size,
+    super().__init__(name,
+                     fw_flops=0,
+                     bw_flops=num_users*act_size,
                      activation_space=act_size,
                      activation_grads=act_size,
                      needs_recompute=needs_recompute,
                      activation_reuse=activation_reuse)
 
   def get_bw_mem_accessed(self):
-    return self.activation_space * (self.num_users + 1)
+    return self.activation_space * self.bytes_per_element * (self.num_users + 1)
+
+
+class TPComm(Layer):
+  def __init__(self, name, act_size, comm_size,
+               split_comm=False, conjugate=False):
+    # FW pass Identity/AllGather, BW pass AllReduce/ReduceScatter
+    fw_flops = 0
+    bw_flops = act_size * (comm_size - 1)
+    in_size = act_size
+    out_size = act_size
+    if split_comm and not conjugate:
+      in_size /= comm_size
+    # Conjugate function is opposite
+    if conjugate:
+      fw_flops = act_size * (comm_size - 1)
+      bw_flops = 0
+      if split_comm:
+        out_size /= comm_size
+    super().__init__(name,
+                     fw_flops=fw_flops,
+                     bw_flops=bw_flops,
+                     inputs_size=in_size,
+                     output_size=out_size,
+                     activation_space=out_size,
+                     activation_grads=in_size)
