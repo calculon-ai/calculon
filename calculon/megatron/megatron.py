@@ -576,8 +576,7 @@ class Megatron: # stems from class (ParaGraph)
         self.minibatch_fw_tp_time + self.minibatch_bw_tp_time) +
       self.minibatch_fw_pp_time + self.minibatch_bw_pp_time)
     self.gpu_dp_comm_size = 2 * self.gpu_weight_space
-    layer_dp_effective_time = self.gpu_dp_comm_size / self.dp_net_throughput / \
-      self.layers_per_proc
+    layer_dp_effective_time = self.gpu_dp_comm_size / self.dp_net_throughput
     if self.exe.in_network_allreduce and not self.exe.optimizer_sharding:
       layer_dp_effective_time /= 2
     # DP overlap happens if DP time for a previous layer(s) is lower than
@@ -592,10 +591,10 @@ class Megatron: # stems from class (ParaGraph)
     # enough, or perform offload/prefetch after each layer-minibatch
     # For simplicity we count only bandwidth-optimal case
     if self.exe.data_par_overlap:
-      exposed_time = (self.exe.pipeline_par - 1) * max(
-        0, layer_dp_effective_time - (
-          self.minibatch_bw_flops_time + self.minibatch_bw_mem_time) * \
-        self.layers_per_proc / self.exe.pipeline_interleaving)
+      exposed_time = (self.exe.pipeline_interleaving - 1) * max(
+        0, layer_dp_effective_time - (self.minibatch_bw_flops_time + \
+          self.minibatch_bw_mem_time) * self.exe.pipeline_par * \
+          self.layers_per_proc / self.exe.pipeline_interleaving)
       self.gpu_dp_comm_time = layer_dp_effective_time + exposed_time
     else:
       self.gpu_dp_comm_time = self.layers_per_proc * layer_dp_effective_time
