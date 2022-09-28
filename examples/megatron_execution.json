@@ -7,7 +7,7 @@
   "minibatch_size": 1,
   "datatype": "bfloat16",
   "activation_recompute": "partial",
-  "pipeline_interleaving": 4,
+  "pipeline_interleaving": 2,
   "optimizer_sharding": true,
   "in_network_allreduce": true,
   "sequence_par": true,

@@ -223,7 +223,7 @@ class BatchMatMul(Layer):
 
 # https://kratzert.github.io/2016/02/12/understanding-the-gradient-flow-through-the-batch-normalization-layer.html
 # https://cthorey.github.io./blog/2016/backpropagation/
-class LinearNorm(Layer):
+class LayerNorm(Layer):
   def __init__(self, name, act_size, hidden,
                needs_recompute=False, activation_reuse=False):
     super().__init__(name,
@@ -303,6 +303,9 @@ class SoftMax(Layer):
                      needs_recompute=needs_recompute,
                      activation_reuse=activation_reuse)
 
+  def get_bw_mem_accessed(self):
+    return self.get_fw_mem_accessed()
+
 
 # https://explained.ai/matrix-calculus/#sec:1.4.2
 class ElementWise(Layer):
@@ -328,8 +331,10 @@ class Fork(Layer):
     super().__init__(name,
                      fw_flops=0,
                      bw_flops=num_users*act_size,
-                     activation_space=act_size,
-                     activation_grads=act_size,
+                     activation_space=0,
+                     # Gradients from num_users accumulated in a single storage
+                     # that's accounted in the previous layer (TPComm)
+                     activation_grads=(1-num_users)*act_size,
                      needs_recompute=needs_recompute,
                      activation_reuse=activation_reuse)
 

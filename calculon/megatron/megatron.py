@@ -43,7 +43,7 @@ class Megatron: # stems from class (ParaGraph)
       self.name = kvs['name']
       self.hidden = kvs['hidden']
       self.seq_size = kvs['seq_size']
-      self.attn_heads = kvs['attn_heads']  # NEVER USED!!!
+      self.attn_heads = kvs['attn_heads']
       self.num_layers = kvs['num_layers']
 
   class Execution:
@@ -161,14 +161,14 @@ class Megatron: # stems from class (ParaGraph)
     recompute_attn_flag = self.exe.activation_recompute in ["full", "partial"]
 
     if self.exe.sequence_par:
-      self.megatron_block.append(LinearNorm(
-        "AttnBlock_LinearNorm",
+      self.megatron_block.append(LayerNorm(
+        "AttnBlock_LayerNorm",
         self.seq_par_activation_size,
         self.app.hidden,
         needs_recompute=recompute_flag))
     else:
-      self.megatron_block.append(LinearNorm(
-        "AttnBlock_LinearNorm",
+      self.megatron_block.append(LayerNorm(
+        "AttnBlock_LayerNorm",
         self.activation_size,
         self.app.hidden,
         needs_recompute=recompute_flag))
@@ -258,14 +258,14 @@ class Megatron: # stems from class (ParaGraph)
     recompute_flag = self.exe.activation_recompute == "full"
 
     if self.exe.sequence_par:
-      self.megatron_block.append(LinearNorm(
-        "MlpBlock_LinearNorm",
+      self.megatron_block.append(LayerNorm(
+        "MlpBlock_LayerNorm",
         self.seq_par_activation_size,
         self.app.hidden,
         needs_recompute=recompute_flag))
     else:
-      self.megatron_block.append(LinearNorm(
-        "MlpBlock_LinearNorm",
+      self.megatron_block.append(LayerNorm(
+        "MlpBlock_LayerNorm",
         self.activation_size,
         self.app.hidden,
         needs_recompute=recompute_flag))
@@ -335,7 +335,6 @@ class Megatron: # stems from class (ParaGraph)
     self.seq_par_activation_size = self.batch_seq_par * self.app.hidden
     self._build_attn_block()
     self._build_mlp_block()
-    # TODO add f/g functions to properly account for activation space?
     for layer in self.megatron_block:
       layer.set_bytes_per_element(self.bytes_per_element)
       if self.exe.optimizer_sharding:
@@ -383,7 +382,6 @@ class Megatron: # stems from class (ParaGraph)
         self.sys.net_tier1_eff * 1000 ** 3
 
   def _compute_minibatch_stats(self):
-    """
     self.log.debug("%s %s", "vector_throughput:",
       human_format(self.vector_throughput, 'throughput'))
     self.log.debug("%s %s", "matrix_throughput:",
@@ -398,7 +396,6 @@ class Megatron: # stems from class (ParaGraph)
       human_format(self.pp_net_throughput, 'bandwidth'))
     self.log.debug("%s %s", "dp_net_throughput:",
       human_format(self.dp_net_throughput, 'bandwidth'))
-    """
 
     for layer in self.megatron_block:
       flops_throughput = self.vector_throughput
@@ -408,17 +405,17 @@ class Megatron: # stems from class (ParaGraph)
       self.minibatch_fw_flops += layer.get_fw_flops()
       self.minibatch_fw_flops_time += \
         layer.get_fw_flops() / flops_throughput
-      self.minibatch_fw_mem_accessed = layer.get_fw_mem_accessed()
-      self.minibatch_fw_mem_time = \
+      self.minibatch_fw_mem_accessed += layer.get_fw_mem_accessed()
+      self.minibatch_fw_mem_time += \
         layer.get_fw_mem_accessed() / self.mem_throughput
       self.minibatch_bw_flops += layer.get_bw_flops()
       self.minibatch_bw_flops_time += \
         layer.get_bw_flops() / flops_throughput
-      self.minibatch_bw_mem_accessed = layer.get_bw_mem_accessed()
-      self.minibatch_bw_mem_time = \
+      self.minibatch_bw_mem_accessed += layer.get_bw_mem_accessed()
+      self.minibatch_bw_mem_time += \
         layer.get_bw_mem_accessed() / self.mem_throughput
-      self.minibatch_recompute_time = layer.get_recompute_flag() * (
-        layer.get_fw_flops() + flops_throughput + \
+      self.minibatch_recompute_time += layer.get_recompute_flag() * (
+        layer.get_fw_flops() / flops_throughput + \
         layer.get_fw_mem_accessed() / self.mem_throughput)
       self.minibatch_recompute_mem_saving += layer.get_recompute_flag() * (
         layer.get_activation())
@@ -430,7 +427,7 @@ class Megatron: # stems from class (ParaGraph)
 
       self.log.debug("%s %s %s", layer.name, 'FW flops:',
         human_format(layer.get_fw_flops(), 'flops'))
-      self.log.debug("%s %s %.3f", layer.name, 'FW flops time:',
+      self.log.debug("%s %s %.3e", layer.name, 'FW flops time:',
         layer.get_fw_flops() / flops_throughput)
       self.log.debug("%s %s %s", layer.name, 'FW num inputs:',
         human_format(layer.inputs_size, 'bytes'))
@@ -440,14 +437,14 @@ class Megatron: # stems from class (ParaGraph)
         human_format(layer.weight_space, 'bytes'))
       self.log.debug("%s %s %s", layer.name, 'FW mem:',
         human_format(layer.get_fw_mem_accessed(), 'bytes'))
-      self.log.debug("%s %s %.3f", layer.name, 'FW mem time:',
+      self.log.debug("%s %s %.3e", layer.name, 'FW mem time:',
         layer.get_fw_mem_accessed() / self.mem_throughput)
-      self.log.debug("%s %s %.3f", layer.name, 'FW time:',
+      self.log.debug("%s %s %.3e", layer.name, 'FW time:',
         layer.get_fw_flops() / flops_throughput + \
         layer.get_fw_mem_accessed() / self.mem_throughput)
       self.log.debug("%s %s %s", layer.name, 'BW flops:',
         human_format(layer.get_bw_flops(), 'flops'))
-      self.log.debug("%s %s %.3f", layer.name, 'BW flops time:',
+      self.log.debug("%s %s %.3e", layer.name, 'BW flops time:',
         layer.get_bw_flops() / flops_throughput)
       self.log.debug("%s %s %s", layer.name, 'BW num Wgrads:',
         human_format(layer.weight_grads, 'bytes'))
@@ -457,9 +454,9 @@ class Megatron: # stems from class (ParaGraph)
         human_format(layer.output_size, 'bytes'))
       self.log.debug("%s %s %s", layer.name, 'BW mem:',
         human_format(layer.get_bw_mem_accessed(), 'bytes'))
-      self.log.debug("%s %s %.3f", layer.name, 'BW mem time:',
+      self.log.debug("%s %s %.3e", layer.name, 'BW mem time:',
         layer.get_bw_mem_accessed() / self.mem_throughput)
-      self.log.debug("%s %s %.3f", layer.name, 'Recompute time:',
+      self.log.debug("%s %s %.3e", layer.name, 'Recompute time:',
         layer.get_recompute_flag() * (
           layer.get_fw_flops() / flops_throughput + \
           layer.get_fw_mem_accessed() / self.mem_throughput))
@@ -489,23 +486,28 @@ class Megatron: # stems from class (ParaGraph)
       self.log.debug("%s %s %s", layer.name, 'Incremental Optim:',
         human_format(self.gpu_optimizer_space, 'bytes'))
 
+    # TP involves 2 AllReduce (or ReduceScatter + AllGather) collectives for
+    # each megatron block, and same amount of communication during the BW pass
     # in case of sequence parallelism, we still communicating
     # full activation sizes, but cannot see the effect from SHARP
     if self.exe.tensor_par > 1:
       if self.exe.sequence_par or self.exe.p2p_rs_ag:
         self.minibatch_fw_tp_size = 2*2 * self.bytes_per_element * \
-          self.seq_par_activation_size
+          self.activation_size
       else:
         self.minibatch_fw_tp_size = 2*2 * self.bytes_per_element * \
           self.activation_size
-        if self.exe.in_network_allreduce:
-          self.minibatch_fw_tp_size /= 2
-          # TODO(misaev): you should only adjust the time, not the size
     self.minibatch_fw_tp_time = \
       self.minibatch_fw_tp_size / self.tp_net_throughput
+    if self.exe.in_network_allreduce and not (
+      self.exe.sequence_par or self.exe.p2p_rs_ag):
+        self.minibatch_fw_tp_time /= 2
     if self.exe.training:
       self.minibatch_bw_tp_size = self.minibatch_fw_tp_size
       self.minibatch_bw_tp_time = self.minibatch_fw_tp_time
+    # PP communication involves pipline_parallelism_factor of point-to-point
+    # instructions between GPUs on neighboring pipeline stages during FW pass,
+    # and the same amount oof communication during the BW pass
     self.minibatch_fw_pp_size = self.exe.pipeline_interleaving
     if self.exe.p2p_rs_ag:
       self.minibatch_fw_pp_size *= \
@@ -518,6 +520,18 @@ class Megatron: # stems from class (ParaGraph)
     if self.exe.training:
       self.minibatch_bw_pp_size = self.minibatch_fw_pp_size
       self.minibatch_bw_pp_time = self.minibatch_fw_pp_time
+    self.log.debug("%s %s", 'TP comm FW size:',
+      human_format(self.minibatch_fw_tp_size, 'bytes'))
+    self.log.debug("%s %s", 'TP comm FW time:', self.minibatch_fw_tp_time)
+    self.log.debug("%s %s", 'TP comm BW size:',
+      human_format(self.minibatch_bw_tp_size, 'bytes'))
+    self.log.debug("%s %s", 'TP comm BW time:', self.minibatch_bw_tp_time)
+    self.log.debug("%s %s", 'PP comm FW size:',
+      human_format(self.minibatch_fw_pp_size, 'bytes'))
+    self.log.debug("%s %s", 'PP comm FW time:', self.minibatch_fw_pp_time)
+    self.log.debug("%s %s", 'PP comm BW size:',
+      human_format(self.minibatch_bw_pp_size, 'bytes'))
+    self.log.debug("%s %s", 'PP comm BW time:', self.minibatch_bw_pp_time)
 
   def _compute_batch_stats(self):
     # compute/memory stats
@@ -549,6 +563,11 @@ class Megatron: # stems from class (ParaGraph)
         self.minibatch_fw_pp_size + self.minibatch_bw_pp_size)
     self.gpu_pp_comm_time = self.num_minibatches * (
       self.minibatch_fw_pp_time + self.minibatch_bw_pp_time)
+    # Bubble forms between i-th minibatch FW and BW passes on the 1st GPU.
+    # Wiht no interleaving between layers, it includes
+    # L/gpu x minibatch_time x (p-1) x Tcycle, where cycle includes both
+    # FW and BW passes, TP and PP communication for FW and BW passes
+    # With full interleaving, we only need minibatch_time x (p-1) x Tcycle time
     self.gpu_bubble_time = (self.exe.pipeline_par - 1) * (
       self.layers_per_proc / self.exe.pipeline_interleaving * (
         self.minibatch_fw_flops_time + self.minibatch_fw_mem_time +
@@ -557,51 +576,61 @@ class Megatron: # stems from class (ParaGraph)
         self.minibatch_fw_tp_time + self.minibatch_bw_tp_time) +
       self.minibatch_fw_pp_time + self.minibatch_bw_pp_time)
     self.gpu_dp_comm_size = 2 * self.gpu_weight_space
-    # TODO(misaev): only the time should be 2x, not the size
-    self.gpu_dp_comm_time = self.gpu_dp_comm_size / self.dp_net_throughput
+    layer_dp_effective_time = self.gpu_dp_comm_size / self.dp_net_throughput / \
+      self.layers_per_proc
     if self.exe.in_network_allreduce and not self.exe.optimizer_sharding:
-      self.gpu_dp_comm_time /= 2
+      layer_dp_effective_time /= 2
+    # DP overlap happens if DP time for a previous layer(s) is lower than
+    # minibatch BW pass time for next pack of consequtive layers
+    # In case of no interleving, we move a single minibatch throug each layer
+    # and need to overlap DP during a single layer single minibatch time
+    # In case of full interleaving, we propagate p minibatches through each
+    # layer and need to overlap DP comm with p-1 minibatches over a layer
+    # In a mixed case, we can overlap DP communication of several 
+    # non-interleaved layers (L/gpu / interleaving_factor) over BW pass of 
+    # p-1 minibatches through the same amount of layers if memory capacity is
+    # enough, or perform offload/prefetch after each layer-minibatch
+    # For simplicity we count only bandwidth-optimal case
     if self.exe.data_par_overlap:
       exposed_time = (self.exe.pipeline_par - 1) * max(
-        0, self.gpu_dp_comm_size / self.layers_per_proc - (
-          self.minibatch_bw_flops_time + \
-          self.minibatch_bw_mem_time) * self.exe.pipeline_interleaving)
-      self.gpu_dp_comm_size = \
-        self.gpu_dp_comm_size / self.layers_per_proc + exposed_time
-      # TODO(misaev): time not re-adjusted after changing size????
+        0, layer_dp_effective_time - (
+          self.minibatch_bw_flops_time + self.minibatch_bw_mem_time) * \
+        self.layers_per_proc / self.exe.pipeline_interleaving)
+      self.gpu_dp_comm_time = layer_dp_effective_time + exposed_time
+    else:
+      self.gpu_dp_comm_time = self.layers_per_proc * layer_dp_effective_time
     # memory capacity stats
     self.gpu_weight_space *= self.layers_per_proc
     # account for activation recomputation
-    if self.exe.activation_recompute != "full":
+    # for full recompute we keep single layer's activations
+    # (no scaling by L/gpu)
+    if self.exe.activation_recompute == "full":
+      assert self.gpu_act_space == self.minibatch_recompute_mem_saving, \
+        "We expect with full act recomputation we reomopute ALL activations"
+    else:
+      # with partial activation recomputation we need to reclaim memory 
       if self.exe.activation_recompute == "partial":
         self.gpu_act_space -= self.minibatch_recompute_mem_saving
-      # TODO(misaev): the comments don't match the if/if logic here.
-
-      # for full recompute we keep single layer's activations,
-      # otherwise we keep activations for all layers on the GPU
+      # Without full recompute, we keep activations for all layers on the GPU
       self.gpu_act_space *= self.layers_per_proc
       # Keep activations for all pipeline stages for PP
       if self.exe.pipeline_interleaving > 1:
         self.gpu_act_space *= self.exe.pipeline_par * (
           1 + (self.exe.pipeline_par - 1) / (self.exe.pipeline_interleaving *
                                              self.exe.pipeline_par))
-      else: # self.pipeline_interleaving == 1
+      else: # self.exe.pipeline_interleaving == 1
         assert self.exe.pipeline_interleaving == 1
         self.gpu_act_space *= self.exe.pipeline_par
-    # Only need activation grads for a single layer
-    self.gpu_act_grad_space = self.gpu_act_grad_space  #TODO(misaev): assigning to self?
-    # Can utilize optimizer split optimization
+    # Only need activation grads for a single layer, so it stays unchanged
+    self.gpu_act_grad_space = self.gpu_act_grad_space
+    # Optimizer split  already accounted for during layers compilation
     self.gpu_weight_grad_space = self.gpu_weight_grad_space * \
       self.layers_per_proc
     self.gpu_optimizer_space = self.gpu_optimizer_space * self.layers_per_proc
-    #if self.exe.optimizer_sharding:
-    #  self.gpu_weight_grad_space /= self.exe.data_par
-    #  self.gpu_optimizer_space /= self.exe.data_par
-    #TODO(misaev): is this needed????
+
 
   def run(self, sys):
     assert self._compiled, "You should first call self.compile()"
-    # TODO - think about how to implement overlap
     assert isinstance(sys, System)
     self.sys = sys
     self._update_hw_throughput()
@@ -753,4 +782,6 @@ class Megatron: # stems from class (ParaGraph)
       f"Compute efficiency: {self.get_compute_efficiency()*100:.2f}%;\n" \
       f"System eficiency: {self.get_system_efficiency()*100:.2f}%;\n" \
       f"Total efficiency: {self.get_total_efficiency()*100:.2f}%;\n"
+    for layer in self.megatron_block:
+      layer.display_stats()
     self.log.info(stats)
