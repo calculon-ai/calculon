@@ -116,41 +116,60 @@ class Megatron: # stems from class (ParaGraph)
     self.minibatch_bw_pp_size = 0
     self.minibatch_bw_pp_time = 0
 
-    # metrics collected after run for each batch on a single GPU
-    self.gpu_weight_space = 0
-    self.gpu_act_space = 0
-    self.gpu_act_checkpoint_size = 0
-    self.gpu_weight_grad_space = 0
-    self.gpu_weight_grad_space_no_sharding = 0
-    self.gpu_act_grad_space = 0
-    self.gpu_optimizer_space = 0
-    self.gpu_fw_flops = 0
-    self.gpu_fw_flops_time = 0
-    self.gpu_fw_mem_accessed = 0
-    self.gpu_fw_mem_time = 0
-    self.gpu_bw_flops = 0
-    self.gpu_bw_flops_time = 0
-    self.gpu_bw_mem_accessed = 0
-    self.gpu_bw_mem_time = 0
-    self.gpu_recompute_time = 0
-    self.gpu_bubble_time = 0
-    self.gpu_tp_comm_size = 0
-    self.gpu_tp_comm_time = 0
-    self.gpu_pp_comm_size = 0
-    self.gpu_pp_comm_time = 0
-    self.gpu_dp_comm_size = 0
-    self.gpu_dp_comm_time = 0
+    # metrics collected after run for each batch on through a single block
+    self.block_weight_space = 0
+    self.block_act_space = 0
+    self.block_act_checkpoint_size = 0
+    self.block_weight_grad_space = 0
+    self.block_weight_grad_space_no_sharding = 0
+    self.block_act_grad_space = 0
+    self.block_optimizer_space = 0
+    self.block_fw_flops = 0
+    self.block_fw_flops_time = 0
+    self.block_fw_mem_accessed = 0
+    self.block_fw_mem_time = 0
+    self.block_bw_flops = 0
+    self.block_bw_flops_time = 0
+    self.block_bw_mem_accessed = 0
+    self.block_bw_mem_time = 0
+    self.block_recompute_time = 0
+    self.block_tp_comm_size = 0
+    self.block_tp_comm_time = 0
 
-    self.fw_time = 0
-    self.bw_time = 0
-    self.recompute_time = 0
-    self.bubble_time = 0
-    self.tp_comm_time = 0
-    self.pp_comm_time = 0
-    self.dp_comm_time = 0
+    # metrics collected after run for each batch on a single processor
+    self.proc_weight_space = 0
+    self.proc_act_space = 0
+    self.proc_act_checkpoint_size = 0
+    self.proc_weight_grad_space = 0
+    self.proc_weight_grad_space_no_sharding = 0
+    self.proc_act_grad_space = 0
+    self.proc_optimizer_space = 0
+    self.proc_fw_flops = 0
+    self.proc_fw_flops_time = 0
+    self.proc_fw_mem_accessed = 0
+    self.proc_fw_mem_time = 0
+    self.proc_bw_flops = 0
+    self.proc_bw_flops_time = 0
+    self.proc_bw_mem_accessed = 0
+    self.proc_bw_mem_time = 0
+    self.proc_recompute_time = 0
+    self.proc_bubble_time = 0
+    self.proc_tp_comm_size = 0
+    self.proc_tp_comm_time = 0
+    self.proc_pp_comm_size = 0
+    self.proc_pp_comm_time = 0
+    self.proc_dp_comm_size = 0
+    self.proc_dp_comm_time = 0
+
+    self.total_fw_time = 0
+    self.total_bw_time = 0
+    self.total_recompute_time = 0
+    self.total_bubble_time = 0
+    self.total_tp_comm_time = 0
+    self.total_pp_comm_time = 0
+    self.total_dp_comm_time = 0
     self.total_time = 0
-    self.gpu_mem_cap_req = 0
-    self.offload_mem_bw_req = 0
+    self.total_offload_mem_bw_req = 0
     self.total_weight_space = 0
     self.total_act_space = 0
     self.total_weight_grad_space = 0
@@ -420,13 +439,13 @@ class Megatron: # stems from class (ParaGraph)
         layer.get_fw_mem_accessed() / self.mem_throughput)
       self.minibatch_recompute_mem_saving += layer.get_recompute_flag() * (
         layer.get_activation())
-      self.gpu_weight_space += layer.get_weight()
-      self.gpu_act_space += layer.get_activation()
-      self.gpu_weight_grad_space += layer.get_weight_grad()
-      self.gpu_weight_grad_space_no_sharding += layer.get_weight_grad(
+      self.block_weight_space += layer.get_weight()
+      self.block_act_space += layer.get_activation()
+      self.block_weight_grad_space += layer.get_weight_grad()
+      self.block_weight_grad_space_no_sharding += layer.get_weight_grad(
         sharded=False)
-      self.gpu_act_grad_space += layer.get_activation_grad()
-      self.gpu_optimizer_space += layer.get_optim()
+      self.block_act_grad_space += layer.get_activation_grad()
+      self.block_optimizer_space += layer.get_optim()
 
       self.log.debug("%s %s %s", layer.name, 'FW flops:',
         human_format(layer.get_fw_flops(), 'flops'))
@@ -477,17 +496,17 @@ class Megatron: # stems from class (ParaGraph)
       self.log.debug("%s %s %s", layer.name, 'Optim:',
         human_format(layer.get_optim(), 'bytes'))
       self.log.debug("%s %s %s", layer.name, 'Incremental Weight:',
-        human_format(self.gpu_weight_space, 'bytes'))
+        human_format(self.block_weight_space, 'bytes'))
       self.log.debug("%s %s %s", layer.name, 'Incremental Act:',
-        human_format(self.gpu_act_space, 'bytes'))
+        human_format(self.block_act_space, 'bytes'))
       self.log.debug("%s %s %s", layer.name, 'Incremental Recompute Saving:',
         human_format(self.minibatch_recompute_mem_saving, 'bytes'))
       self.log.debug("%s %s %s", layer.name, 'Incremental Weight grad:',
-        human_format(self.gpu_weight_grad_space, 'bytes'))
+        human_format(self.block_weight_grad_space, 'bytes'))
       self.log.debug("%s %s %s", layer.name, 'Incremental Act grad:',
-        human_format(self.gpu_act_grad_space, 'bytes'))
+        human_format(self.block_act_grad_space, 'bytes'))
       self.log.debug("%s %s %s", layer.name, 'Incremental Optim:',
-        human_format(self.gpu_optimizer_space, 'bytes'))
+        human_format(self.block_optimizer_space, 'bytes'))
 
     # TP involves 2 AllReduce (or ReduceScatter + AllGather) collectives for
     # each megatron block, and same amount of communication during the BW pass
@@ -538,48 +557,56 @@ class Megatron: # stems from class (ParaGraph)
 
   def _compute_batch_stats(self):
     # compute/memory stats
-    self.gpu_fw_flops = self.layers_per_proc * self.num_minibatches *\
-      self.minibatch_fw_flops
-    self.gpu_fw_flops_time = self.layers_per_proc * self.num_minibatches *\
-      self.minibatch_fw_flops_time
-    self.gpu_fw_mem_accessed = self.layers_per_proc * self.num_minibatches *\
-      self.minibatch_fw_mem_accessed
-    self.gpu_fw_mem_time = self.layers_per_proc * self.num_minibatches *\
-      self.minibatch_fw_mem_time
-    self.gpu_bw_flops = self.layers_per_proc * self.num_minibatches *\
-      self.minibatch_bw_flops
-    self.gpu_bw_flops_time = self.layers_per_proc * self.num_minibatches *\
-      self.minibatch_bw_flops_time
-    self.gpu_bw_mem_accessed = self.layers_per_proc * self.num_minibatches *\
-      self.minibatch_bw_mem_accessed
-    self.gpu_bw_mem_time = self.layers_per_proc * self.num_minibatches *\
-      self.minibatch_bw_mem_time
-    self.gpu_recompute_time = self.layers_per_proc * self.num_minibatches *\
-      self.minibatch_recompute_time
+    self.block_fw_flops = self.num_minibatches * self.minibatch_fw_flops
+    self.proc_fw_flops = self.layers_per_proc * self.block_fw_flops
+    self.block_fw_flops_time = \
+      self.num_minibatches * self.minibatch_fw_flops_time
+    self.proc_fw_flops_time = self.layers_per_proc * self.block_fw_flops_time
+    self.block_fw_mem_accessed = \
+      self.num_minibatches * self.minibatch_fw_mem_accessed
+    self.proc_fw_mem_accessed = \
+      self.layers_per_proc * self.block_fw_mem_accessed
+    self.block_fw_mem_time = self.num_minibatches * self.minibatch_fw_mem_time
+    self.proc_fw_mem_time = self.layers_per_proc * self.block_fw_mem_time
+    self.block_bw_flops = self.num_minibatches * self.minibatch_bw_flops
+    self.proc_bw_flops = self.layers_per_proc * self.block_bw_flops
+    self.block_bw_flops_time = \
+      self.num_minibatches * self.minibatch_bw_flops_time
+    self.proc_bw_flops_time = self.layers_per_proc * self.block_bw_flops_time
+    self.block_bw_mem_accessed = \
+      self.num_minibatches * self.minibatch_bw_mem_accessed
+    self.proc_bw_mem_accessed = \
+      self.layers_per_proc * self.block_bw_mem_accessed
+    self.block_bw_mem_time = self.num_minibatches * self.minibatch_bw_mem_time
+    self.proc_bw_mem_time = self.layers_per_proc * self.block_bw_mem_time
+    self.block_recompute_time = \
+      self.num_minibatches * self.minibatch_recompute_time
+    self.proc_recompute_time = self.layers_per_proc * self.block_recompute_time
     # network stats
-    self.gpu_tp_comm_size = self.layers_per_proc * self.num_minibatches * (
+    self.block_tp_comm_size = self.num_minibatches * (
       self.minibatch_fw_tp_size + self.minibatch_bw_tp_size)
-    self.gpu_tp_comm_time = self.layers_per_proc * self.num_minibatches * (
+    self.proc_tp_comm_size = self.layers_per_proc * self.block_tp_comm_size
+    self.block_tp_comm_time = self.num_minibatches * (
       self.minibatch_fw_tp_time + self.minibatch_bw_tp_time)
-    self.gpu_pp_comm_size = \
-      self.num_minibatches * self.exe.pipeline_interleaving * (
-        self.minibatch_fw_pp_size + self.minibatch_bw_pp_size)
-    self.gpu_pp_comm_time = self.num_minibatches * (
+    self.proc_tp_comm_time = self.layers_per_proc * self.block_tp_comm_time
+    self.proc_pp_comm_size = self.num_minibatches * (
+      self.minibatch_fw_pp_size + self.minibatch_bw_pp_size)
+    self.proc_pp_comm_time = self.num_minibatches * (
       self.minibatch_fw_pp_time + self.minibatch_bw_pp_time)
     # Bubble forms between i-th minibatch FW and BW passes on the 1st GPU.
     # Wiht no interleaving between layers, it includes
     # L/gpu x minibatch_time x (p-1) x Tcycle, where cycle includes both
     # FW and BW passes, TP and PP communication for FW and BW passes
     # With full interleaving, we only need minibatch_time x (p-1) x Tcycle time
-    self.gpu_bubble_time = (self.exe.pipeline_par - 1) * (
+    self.proc_bubble_time = (self.exe.pipeline_par - 1) * (
       self.layers_per_proc / self.exe.pipeline_interleaving * (
         self.minibatch_fw_flops_time + self.minibatch_fw_mem_time +
         self.minibatch_bw_flops_time + self.minibatch_bw_mem_time +
         self.minibatch_recompute_time +
         self.minibatch_fw_tp_time + self.minibatch_bw_tp_time) +
       self.minibatch_fw_pp_time + self.minibatch_bw_pp_time)
-    self.gpu_dp_comm_size = 2 * self.gpu_weight_space
-    layer_dp_effective_time = self.gpu_dp_comm_size / self.dp_net_throughput
+    self.proc_dp_comm_size = 2 * self.block_weight_space
+    layer_dp_effective_time = self.proc_dp_comm_size / self.dp_net_throughput
     if self.exe.in_network_allreduce and not self.exe.optimizer_sharding:
       layer_dp_effective_time /= 2
     # DP overlap happens if DP time for a previous layer(s) is lower than
@@ -598,42 +625,44 @@ class Megatron: # stems from class (ParaGraph)
         0, layer_dp_effective_time - (self.minibatch_bw_flops_time + \
           self.minibatch_bw_mem_time) * self.exe.pipeline_par * \
           self.layers_per_proc / self.exe.pipeline_interleaving)
-      self.gpu_dp_comm_time = layer_dp_effective_time + exposed_time
+      self.proc_dp_comm_time = layer_dp_effective_time + exposed_time
     else:
-      self.gpu_dp_comm_time = self.layers_per_proc * layer_dp_effective_time
+      self.proc_dp_comm_time = self.layers_per_proc * layer_dp_effective_time
     # memory capacity stats
-    self.gpu_weight_space *= self.layers_per_proc
+    self.proc_weight_space = self.block_weight_space * self.layers_per_proc
     # account for activation recomputation
     # for full recompute we keep single layer's activations
     # (no scaling by L/gpu)
     if self.exe.activation_recompute == "full":
-      assert self.gpu_act_space == self.minibatch_recompute_mem_saving, \
+      assert self.block_act_space == self.minibatch_recompute_mem_saving, \
         "We expect with full act recomputation we reomopute ALL activations"
     else:
       # with partial activation recomputation we need to reclaim memory 
       if self.exe.activation_recompute == "partial":
-        self.gpu_act_space -= self.minibatch_recompute_mem_saving
+        self.block_act_space -= self.minibatch_recompute_mem_saving
       # Without full recompute, we keep activations for all layers on the GPU
-      self.gpu_act_space *= self.layers_per_proc
+      self.proc_act_space = self.block_act_space * self.layers_per_proc
       # Keep activations for all pipeline stages for PP
       if self.exe.pipeline_interleaving > 1:
-        self.gpu_act_space *= self.exe.pipeline_par * (
+        self.proc_act_space *= self.exe.pipeline_par * (
           1 + (self.exe.pipeline_par - 1) / (self.exe.pipeline_interleaving *
                                              self.exe.pipeline_par))
       else: # self.exe.pipeline_interleaving == 1
         assert self.exe.pipeline_interleaving == 1
-        self.gpu_act_space *= self.exe.pipeline_par
+        self.proc_act_space *= self.exe.pipeline_par
     # Only need activation grads for a single layer, so it stays unchanged
-    self.gpu_act_grad_space = self.gpu_act_grad_space
+    self.proc_act_grad_space = self.block_act_grad_space
     # Optimizer split  already accounted for during layers compilation
     # We should keep non-sharded weight grad for a current layer for AllReduce
     # and one that we currently compute, so 2x total 
     if self.layers_per_proc == 1:
-      self.gpu_weight_grad_space = self.gpu_weight_grad_space_no_sharding
+      self.proc_weight_grad_space = self.block_weight_grad_space_no_sharding
     else:
-      self.gpu_weight_grad_space = 2* self.gpu_weight_grad_space_no_sharding + \
-        self.gpu_weight_grad_space * (self.layers_per_proc - 2)
-    self.gpu_optimizer_space = self.gpu_optimizer_space * self.layers_per_proc
+      self.proc_weight_grad_space = \
+        2 * self.block_weight_grad_space_no_sharding + \
+        self.block_weight_grad_space * (self.layers_per_proc - 2)
+    self.proc_optimizer_space = \
+      self.block_optimizer_space * self.layers_per_proc
 
 
   def run(self, sys):
@@ -648,38 +677,61 @@ class Megatron: # stems from class (ParaGraph)
     self._executed = True
     # or make a big ass dict, or csv, or pandas?
 
-  def get_fw_time(self):
-    return self.gpu_fw_flops_time + self.gpu_fw_mem_time
+  def _get_fw_offload_size(self):
+    fw_offload_size = 0
+    if self.exe.weight_offload:
+      fw_offload_size += self.block_weight_space
+    if self.exe.activations_offload:
+      fw_offload_size += self.block_act_space
+    return fw_offload_size
 
-  def get_bw_time(self):
+  def _get_bw_offload_size(self):
+    bw_offload_size = 0
+    if self.exe.weight_offload:
+      bw_offload_size += self.block_weight_space
+    if self.exe.optimizer_offload:
+      bw_offload_size += \
+        self.block_weight_grad_space + self.block_optimizer_space
+    return bw_offload_size
+
+  def get_proc_fw_time(self):
+    fw_time = self.proc_fw_mem_time
+    fw_time += max(self.proc_fw_flops_time,
+                   self._get_fw_offload_size() / self.offload_throughput)
+    return fw_time
+
+  def get_proc_bw_time(self):
     if self.exe.training:
-      return self.gpu_bw_flops_time + self.gpu_bw_mem_time
+      bw_time = self.proc_bw_mem_time
+      bw_time += max(self.proc_bw_flops_time,
+                    self._get_bw_offload_size() / self.offload_throughput)
+      return bw_time
     else:
       return 0
 
-  def get_recompute_time(self):
-    return self.gpu_recompute_time
+  def get_proc_recompute_time(self):
+    return self.proc_recompute_time
 
-  def get_bubble_time(self):
-    return self.gpu_bubble_time
+  def get_proc_bubble_time(self):
+    return self.proc_bubble_time
 
-  def get_tp_comm_time(self):
-    return self.gpu_tp_comm_time
+  def get_proc_tp_comm_time(self):
+    return self.proc_tp_comm_time
 
-  def get_pp_comm_time(self):
-    return self.gpu_pp_comm_time
+  def get_proc_pp_comm_time(self):
+    return self.proc_pp_comm_time
 
-  def get_dp_comm_time(self):
-    return self.gpu_dp_comm_time
+  def get_proc_dp_comm_time(self):
+    return self.proc_dp_comm_time
 
-  def get_total_time(self):
-    time = self.get_fw_time()
-    time += self.get_bw_time()
-    time += self.get_recompute_time()
-    time += self.get_bubble_time()
-    time += self.get_tp_comm_time()
-    time += self.get_pp_comm_time()
-    time += self.get_dp_comm_time()
+  def get_proc_total_time(self):
+    time = self.get_proc_fw_time()
+    time += self.get_proc_bw_time()
+    time += self.get_proc_recompute_time()
+    time += self.get_proc_bubble_time()
+    time += self.get_proc_tp_comm_time()
+    time += self.get_proc_pp_comm_time()
+    time += self.get_proc_dp_comm_time()
     return time
 
   def get_useful_flops(self):
@@ -692,75 +744,125 @@ class Megatron: # stems from class (ParaGraph)
 
   def get_compute_efficiency(self):
     total_flops = self.get_useful_flops()
-    compute_time = self.get_fw_time() + self.get_bw_time()
+    compute_time = self.get_proc_fw_time() + self.get_proc_bw_time()
     perfect_time = self.layers_per_proc * self.num_minibatches * \
       total_flops / (self.sys.matrix_tflops * 1e12)
     return perfect_time / compute_time
 
   def get_system_efficiency(self):
-    return (self.get_bw_time() + self.get_fw_time()) / self.get_total_time()
+    return (self.get_proc_bw_time() + self.get_proc_fw_time()) / \
+      self.get_proc_total_time()
 
   def get_total_efficiency(self):
     total_flops = self.get_useful_flops()
     perfect_time = self.layers_per_proc * self.num_minibatches * \
       total_flops / (self.sys.matrix_tflops * 1e12)
-    return perfect_time / self.get_total_time()
+    return perfect_time / self.get_proc_total_time()
 
-  def get_gpu_weight_space(self):
-    return self.gpu_weight_space
+  def get_proc_weight_space(self):
+    return self.proc_weight_space
 
-  def get_gpu_act_space(self):
-    return self.gpu_act_space
+  def get_proc_act_space(self):
+    return self.proc_act_space
 
-  def get_gpu_act_checkpoint_size(self):
+  def get_proc_act_checkpoint_size(self):
     if self.exe.activation_recompute != 'full':
       return 0
-    return self.bytes_per_element * self.activation_size * \
+    return self.bytes_per_element * self.block_activation_size * \
       self.layers_per_proc
 
-  def get_gpu_weight_grad_space(self):
-    return self.gpu_weight_grad_space
+  def get_proc_weight_grad_space(self):
+    return self.proc_weight_grad_space
 
-  def get_gpu_act_grad_space(self):
-    return self.gpu_act_grad_space
+  def get_proc_act_grad_space(self):
+    return self.proc_act_grad_space
 
-  def get_gpu_optimizer_space(self):
-    return self.gpu_optimizer_space
+  def get_proc_optimizer_space(self):
+    return self.proc_optimizer_space
 
-  def get_gpu_mem_requirements(self):
-    mem = self.get_gpu_weight_space() + \
-      self.get_gpu_act_space() + \
-      self.get_gpu_act_checkpoint_size() + \
-      self.get_gpu_weight_grad_space() + \
-      self.get_gpu_act_grad_space() + \
-      self.get_gpu_optimizer_space()
+  def get_proc_mem_cap_req_no_offload(self):
+    mem = self.proc_weight_space + \
+      self.proc_act_space + \
+      self.get_proc_act_checkpoint_size() + \
+      self.proc_weight_grad_space + \
+      self.proc_act_grad_space + \
+      self.proc_optimizer_space
     return mem
 
-  # TODO ===============================================================
-  def get_gpu_mem_cap_req(self):
-    return self.gpu_mem_cap_req
+  def get_proc_mem_cap_req_offload(self):
+    if self.layers_per_proc == 1:
+      return self.get_proc_mem_cap_req_no_offload()
+    mem = self.block_weight_space * 2 + \
+      self.block_act_space * 2 + \
+      self.get_proc_act_checkpoint_size() + \
+      self.block_weight_grad_space_no_sharding * 2 + \
+      self.get_proc_act_grad_space() + \
+      self.block_optimizer_space * 2
+    return mem
+
+  def get_proc_mem_cap_req(self):
+    if self.layers_per_proc == 1:
+      return self.get_proc_mem_cap_req_no_offload()
+    mem = 0
+    if self.exe.weight_offload:
+      mem += self.block_weight_space * 2
+    else:
+      mem += self.proc_weight_space
+    if self.exe.activations_offload:
+      mem += self.block_act_space * 2
+    else:
+      mem += self.proc_act_space
+    mem += self.get_proc_act_checkpoint_size()
+    if self.exe.optimizer_offload:
+      mem += self.block_weight_grad_space_no_sharding * 2
+      mem += self.block_optimizer_space * 2
+    else:
+      self.proc_weight_grad_space + \
+      self.proc_optimizer_space
+    mem += self.get_proc_act_grad_space()
+    return mem
+
+  def get_act_offload_bw_req(self):
+    # We should be able to offload (write) activation during FW pass and
+    # prefetch it (read) during BW pass for layer (i-1)
+    # After BW pass activations are discarded
+    return self.block_act_space / self.block_fw_flops_time
+
+  def get_weight_offload_bw_req(self):
+    # We should be able to offload (write) and prefetch (read) weights both
+    # during FW and BW passes for layers (i-1) / (i+1).
+    # We always keep weights, they cannot be discarded
+    return self.block_weight_space / self.block_fw_flops_time
+
+  def get_optim_offload_bw_req(self):
+    # We should be able to offload (write) weight grads and optimizer state
+    # and prefetch (read) optimizer state during BW passes for layers
+    # (i-1) / (i+1).
+    return (self.block_weight_grad_space + self.block_optimizer_space) / \
+      self.block_bw_flops_time
 
   def get_offload_mem_bw_req(self):
-    return self.offload_mem_bw_req
-  # ====================================================================
+    req_bw = max(self._get_fw_offload_size() / self.block_fw_flops_time,
+                 self._get_bw_offload_size() / self.block_bw_flops_time)
+    return req_bw
 
   def get_total_weight_space(self):
-    return self.exe.num_procs * self.get_gpu_weight_space()
+    return self.exe.num_procs * self.get_proc_weight_space()
 
   def get_total_act_space(self):
-    return self.exe.num_procs * self.get_gpu_act_space()
+    return self.exe.num_procs * self.get_proc_act_space()
 
   def get_total_act_checkpoint_size(self):
-    return self.exe.num_procs * self.get_gpu_act_checkpoint_size()
+    return self.exe.num_procs * self.get_proc_act_checkpoint_size()
 
   def get_total_weight_grad_space(self):
-    return self.exe.num_procs * self.get_gpu_weight_grad_space()
+    return self.exe.num_procs * self.get_proc_weight_grad_space()
 
   def get_total_act_grad_space(self):
-    return self.exe.num_procs * self.get_gpu_act_grad_space()
+    return self.exe.num_procs * self.get_proc_act_grad_space()
 
   def get_total_optimizer_space(self):
-    return self.exe.num_procs * self.get_gpu_optimizer_space()
+    return self.exe.num_procs * self.get_proc_optimizer_space()
 
   def display_stats(self):
     stats = "" \
@@ -770,22 +872,29 @@ class Megatron: # stems from class (ParaGraph)
       f"DP={self.exe.data_par}, {self.layers_per_proc} layers per processor\n" \
       f"Execution: {self.exe};\n" \
       f"System: {self.sys};\n" \
-      f"Weights: {human_format(self.get_gpu_weight_space(), 'bytes')};\n" \
-      f"Act: {human_format(self.get_gpu_act_space(), 'bytes')};\n" \
-      f"Act CP: {human_format(self.get_gpu_act_checkpoint_size(), 'bytes')};\n" \
-      f"Act grad: {human_format(self.get_gpu_act_grad_space(), 'bytes')};\n" \
-      f"Weight grad: {human_format(self.get_gpu_weight_grad_space(), 'bytes')};\n" \
-      f"Optim space: {human_format(self.get_gpu_optimizer_space(), 'bytes')};\n" \
-      f"Total mem requirements: {human_format(self.get_gpu_mem_requirements(), 'bytes')};\n" \
-      f"Batch FW time: {self.get_fw_time():.2f};\n" \
-      f"Batch BW time: {self.get_bw_time():.2f};\n" \
-      f"Batch recompute time: {self.get_recompute_time():.2f};\n" \
-      f"Batch bubble time: {self.get_bubble_time():.2f};\n" \
-      f"Batch TP comm time: {self.get_tp_comm_time():.2f};\n" \
-      f"Batch PP comm time: {self.get_pp_comm_time():.2f};\n" \
-      f"Batch DP comm time: {self.get_dp_comm_time():.2f};\n" \
-      f"Batch total time: {self.get_total_time():.2f};\n" \
-      f"Total Flops: {human_format(self.get_useful_flops(), 'flops')};\n" \
+      f"Weights: {human_format(self.get_proc_weight_space(), 'bytes')};\n" \
+      f"Act: {human_format(self.get_proc_act_space(), 'bytes')};\n" \
+      f"Act CP: {human_format(self.get_proc_act_checkpoint_size(), 'bytes')};\n" \
+      f"Act grad: {human_format(self.get_proc_act_grad_space(), 'bytes')};\n" \
+      f"Weight grad: {human_format(self.get_proc_weight_grad_space(), 'bytes')};\n" \
+      f"Optim space: {human_format(self.get_proc_optimizer_space(), 'bytes')};\n" \
+      f"Total mem requirements: {human_format(self.get_proc_mem_cap_req_no_offload(), 'bytes')};\n" \
+      f"Batch FW time: {self.get_proc_fw_time():.2f};\n" \
+      f"Batch BW time: {self.get_proc_bw_time():.2f};\n" \
+      f"Batch recompute time: {self.get_proc_recompute_time():.2f};\n" \
+      f"Batch bubble time: {self.get_proc_bubble_time():.2f};\n" \
+      f"Batch TP comm time: {self.get_proc_tp_comm_time():.2f};\n" \
+      f"Batch PP comm time: {self.get_proc_pp_comm_time():.2f};\n" \
+      f"Batch DP comm time: {self.get_proc_dp_comm_time():.2f};\n" \
+      f"Batch total time: {self.get_proc_total_time():.2f};\n" \
+      f"Activation offload required BW: {human_format(self.get_act_offload_bw_req(), 'bandwidth')};\n" \
+      f"Weight offload required BW: {human_format(self.get_weight_offload_bw_req(), 'bandwidth')};\n" \
+      f"Optimizer offload required BW: {human_format(self.get_optim_offload_bw_req(), 'bandwidth')};\n" \
+      f"Total offload required BW: {human_format(self.get_offload_mem_bw_req(), 'bandwidth')};\n" \
+      f"Mem capacity requirement: {human_format(self.get_proc_mem_cap_req(), 'bytes')};\n" \
+      f"Mem capacity without offload: {human_format(self.get_proc_mem_cap_req_no_offload(), 'bytes')};\n" \
+      f"Mem capacity with offload: {human_format(self.get_proc_mem_cap_req_offload(), 'bytes')};\n" \
+      f"Total Flops per processor: {human_format(self.get_useful_flops(), 'flops')};\n" \
       f"Compute efficiency: {self.get_compute_efficiency()*100:.2f}%;\n" \
       f"System eficiency: {self.get_system_efficiency()*100:.2f}%;\n" \
       f"Total efficiency: {self.get_total_efficiency()*100:.2f}%;\n"
