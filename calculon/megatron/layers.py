@@ -40,6 +40,7 @@ class Layer:
     self.weight_space = weight_space
     self.weight_grads = weight_grads
     self.optim_space = optim_space
+    self.optim_sharding_num_proc = 1
 
     # TODO: do we need these two rows?
     # self.net_access_rd = net_access_rd
@@ -80,9 +81,8 @@ class Layer:
     self.bytes_per_element = bytes_per_element
 
   # Shard (distribute) optimizer and weight grads between data parallel nodes
-  def shard_optimizer(self, num_gpus):
-    self.weight_grads /= num_gpus
-    self.optim_space /= num_gpus
+  def shard_optimizer(self, num_procs):
+    self.optim_sharding_num_proc = num_procs
 
   # setters related to HW config
   # TODO get rid of them as we probably need only flops and bytes from layer
@@ -129,7 +129,7 @@ class Layer:
   # based on number of weight grads to accommodate for possible weight_grad
   # sharding among data parallel nodes
   def get_bw_flops(self):
-    optim_flops = self.weight_grads * 11
+    optim_flops = self.weight_grads / self.optim_sharding_num_proc * 11
     return self.bw_flops + optim_flops
 
   def get_bw_mem_accessed(self):
@@ -138,7 +138,8 @@ class Layer:
     # activation grads, input grads are equal to outtput size
     grad_mem = self.weight_grads + self.activation_grads + self.output_size
     grad_mem *= self.bytes_per_element
-    return fw_mem + grad_mem + self.get_optim()
+    # cover mem access for optimizer step and grad update separately
+    return fw_mem + grad_mem + self.get_optim() + self.get_weight_grad()
 
   def get_bw_arithmetic_intensity(self):
     if self.bw_flops == 0:
@@ -161,8 +162,11 @@ class Layer:
       return 0
     return self.activation_space * self.bytes_per_element
 
-  def get_weight_grad(self):
-    return self.weight_grads * self.bytes_per_element
+  def get_weight_grad(self, sharded=True):
+    grads = self.weight_grads * self.bytes_per_element
+    if sharded:
+      grads /= self.optim_sharding_num_proc
+    return grads
 
   def get_activation_grad(self):
     return self.activation_grads * self.bytes_per_element
@@ -174,7 +178,7 @@ class Layer:
       master_copy_size = (self.weight_grads + self.weight_space) * 4
     else:
       master_copy_size = 0
-    return master_copy_size + moments_size
+    return (master_copy_size + moments_size) / self.optim_sharding_num_proc
 
   # def get_flops(self):
   #     if self.sw_config['training']:

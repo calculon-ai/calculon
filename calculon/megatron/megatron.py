@@ -121,6 +121,7 @@ class Megatron: # stems from class (ParaGraph)
     self.gpu_act_space = 0
     self.gpu_act_checkpoint_size = 0
     self.gpu_weight_grad_space = 0
+    self.gpu_weight_grad_space_no_sharding = 0
     self.gpu_act_grad_space = 0
     self.gpu_optimizer_space = 0
     self.gpu_fw_flops = 0
@@ -422,6 +423,8 @@ class Megatron: # stems from class (ParaGraph)
       self.gpu_weight_space += layer.get_weight()
       self.gpu_act_space += layer.get_activation()
       self.gpu_weight_grad_space += layer.get_weight_grad()
+      self.gpu_weight_grad_space_no_sharding += layer.get_weight_grad(
+        sharded=False)
       self.gpu_act_grad_space += layer.get_activation_grad()
       self.gpu_optimizer_space += layer.get_optim()
 
@@ -623,8 +626,9 @@ class Megatron: # stems from class (ParaGraph)
     # Only need activation grads for a single layer, so it stays unchanged
     self.gpu_act_grad_space = self.gpu_act_grad_space
     # Optimizer split  already accounted for during layers compilation
-    self.gpu_weight_grad_space = self.gpu_weight_grad_space * \
-      self.layers_per_proc
+    # We should keep non-sharded weight grad for a current layer for AllReduce 
+    self.gpu_weight_grad_space = self.gpu_weight_grad_space_no_sharding + \
+      self.gpu_weight_grad_space * (self.layers_per_proc - 1)
     self.gpu_optimizer_space = self.gpu_optimizer_space * self.layers_per_proc
 
 
