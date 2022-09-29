@@ -626,9 +626,13 @@ class Megatron: # stems from class (ParaGraph)
     # Only need activation grads for a single layer, so it stays unchanged
     self.gpu_act_grad_space = self.gpu_act_grad_space
     # Optimizer split  already accounted for during layers compilation
-    # We should keep non-sharded weight grad for a current layer for AllReduce 
-    self.gpu_weight_grad_space = self.gpu_weight_grad_space_no_sharding + \
-      self.gpu_weight_grad_space * (self.layers_per_proc - 1)
+    # We should keep non-sharded weight grad for a current layer for AllReduce
+    # and one that we currently compute, so 2x total 
+    if self.layers_per_proc == 1:
+      self.gpu_weight_grad_space = self.gpu_weight_grad_space_no_sharding
+    else:
+      self.gpu_weight_grad_space = 2* self.gpu_weight_grad_space_no_sharding + \
+        self.gpu_weight_grad_space * (self.layers_per_proc - 2)
     self.gpu_optimizer_space = self.gpu_optimizer_space * self.layers_per_proc
 
 
