@@ -84,6 +84,10 @@ class Megatron: # stems from class (ParaGraph)
     # Set during run
     self.sys = None
 
+    # State of calling compile() and run()
+    self._compiled = False
+    self._executed = False
+
     # TODO generalize layers to be a graph
     self.megatron_block = []
 
@@ -175,6 +179,93 @@ class Megatron: # stems from class (ParaGraph)
     self.total_weight_grad_space = 0
     self.total_act_grad_space = 0
     self.total_optimizer_space = 0
+
+  def get_json(self):
+    assert self._executed
+    j = {'layers': []}
+    for layer in self.megatron_block:
+      j['layers'].append(layer.get_json())
+    j['vector_throughput'] = self.vector_throughput
+    j['matrix_throughput'] = self.matrix_throughput
+    j['mem_throughput'] = self.mem_throughput
+    j['offload_throughput'] = self.offload_throughput
+    j['tp_net_throughput'] = self.tp_net_throughput
+    j['dp_net_throughput'] = self.dp_net_throughput
+    j['pp_net_throughput'] = self.pp_net_throughput
+    j['minibatch_fw_flops'] = self.minibatch_fw_flops
+    j['minibatch_fw_flops_time'] = self.minibatch_fw_flops_time
+    j['minibatch_fw_mem_accessed'] = self.minibatch_fw_mem_accessed
+    j['minibatch_fw_mem_time'] = self.minibatch_fw_mem_time
+    j['minibatch_bw_flops'] = self.minibatch_bw_flops
+    j['minibatch_bw_flops_time'] = self.minibatch_bw_flops_time
+    j['minibatch_bw_mem_accessed'] = self.minibatch_bw_mem_accessed
+    j['minibatch_bw_mem_time'] = self.minibatch_bw_mem_time
+    j['minibatch_recompute_mem_saving'] = self.minibatch_recompute_mem_saving
+    j['minibatch_recompute_time'] = self.minibatch_recompute_time
+    j['minibatch_fw_tp_size'] = self.minibatch_fw_tp_size
+    j['minibatch_fw_tp_time'] = self.minibatch_fw_tp_time
+    j['minibatch_bw_tp_size'] = self.minibatch_bw_tp_size
+    j['minibatch_bw_tp_time'] = self.minibatch_bw_tp_time
+    j['minibatch_fw_pp_size'] = self.minibatch_fw_pp_size
+    j['minibatch_fw_pp_time'] = self.minibatch_fw_pp_time
+    j['minibatch_bw_pp_size'] = self.minibatch_bw_pp_size
+    j['minibatch_bw_pp_time'] = self.minibatch_bw_pp_time
+    j['block_weight_space'] = self.block_weight_space
+    j['block_act_space'] = self.block_act_space
+    j['block_act_checkpoint_size'] = self.block_act_checkpoint_size
+    j['block_weight_grad_space'] = self.block_weight_grad_space
+    j['block_weight_grad_space_no_sharding'] = self.block_weight_grad_space_no_sharding
+    j['block_act_grad_space'] = self.block_act_grad_space
+    j['block_optimizer_space'] = self.block_optimizer_space
+    j['block_fw_flops'] = self.block_fw_flops
+    j['block_fw_flops_time'] = self.block_fw_flops_time
+    j['block_fw_mem_accessed'] = self.block_fw_mem_accessed
+    j['block_fw_mem_time'] = self.block_fw_mem_time
+    j['block_bw_flops'] = self.block_bw_flops
+    j['block_bw_flops_time'] = self.block_bw_flops_time
+    j['block_bw_mem_accessed'] = self.block_bw_mem_accessed
+    j['block_bw_mem_time'] = self.block_bw_mem_time
+    j['block_recompute_time'] = self.block_recompute_time
+    j['block_tp_comm_size'] = self.block_tp_comm_size
+    j['block_tp_comm_time'] = self.block_tp_comm_time
+    j['proc_weight_space'] = self.proc_weight_space
+    j['proc_act_space'] = self.proc_act_space
+    j['proc_act_checkpoint_size'] = self.proc_act_checkpoint_size
+    j['proc_weight_grad_space'] = self.proc_weight_grad_space
+    j['proc_weight_grad_space_no_sharding'] = self.proc_weight_grad_space_no_sharding
+    j['proc_act_grad_space'] = self.proc_act_grad_space
+    j['proc_optimizer_space'] = self.proc_optimizer_space
+    j['proc_fw_flops'] = self.proc_fw_flops
+    j['proc_fw_flops_time'] = self.proc_fw_flops_time
+    j['proc_fw_mem_accessed'] = self.proc_fw_mem_accessed
+    j['proc_fw_mem_time'] = self.proc_fw_mem_time
+    j['proc_bw_flops'] = self.proc_bw_flops
+    j['proc_bw_flops_time'] = self.proc_bw_flops_time
+    j['proc_bw_mem_accessed'] = self.proc_bw_mem_accessed
+    j['proc_bw_mem_time'] = self.proc_bw_mem_time
+    j['proc_recompute_time'] = self.proc_recompute_time
+    j['proc_bubble_time'] = self.proc_bubble_time
+    j['proc_tp_comm_size'] = self.proc_tp_comm_size
+    j['proc_tp_comm_time'] = self.proc_tp_comm_time
+    j['proc_pp_comm_size'] = self.proc_pp_comm_size
+    j['proc_pp_comm_time'] = self.proc_pp_comm_time
+    j['proc_dp_comm_size'] = self.proc_dp_comm_size
+    j['proc_dp_comm_time'] = self.proc_dp_comm_time
+    j['total_fw_time'] = self.total_fw_time
+    j['total_bw_time'] = self.total_bw_time
+    j['total_recompute_time'] = self.total_recompute_time
+    j['total_bubble_time'] = self.total_bubble_time
+    j['total_tp_comm_time'] = self.total_tp_comm_time
+    j['total_pp_comm_time'] = self.total_pp_comm_time
+    j['total_dp_comm_time'] = self.total_dp_comm_time
+    j['total_time'] = self.total_time
+    j['total_offload_mem_bw_req'] = self.total_offload_mem_bw_req
+    j['total_weight_space'] = self.total_weight_space
+    j['total_act_space'] = self.total_act_space
+    j['total_weight_grad_space'] = self.total_weight_grad_space
+    j['total_act_grad_space'] = self.total_act_grad_space
+    j['total_optimizer_space'] = self.total_optimizer_space
+    return j
 
   def _build_attn_block(self):
     recompute_flag = self.exe.activation_recompute == "full"
@@ -340,6 +431,7 @@ class Megatron: # stems from class (ParaGraph)
         needs_recompute=recompute_flag))
 
   def compile(self, exe):
+    assert not self._compiled
     assert isinstance(exe, self.Execution)
     self.exe = exe
 
@@ -445,7 +537,7 @@ class Megatron: # stems from class (ParaGraph)
       self.block_weight_grad_space_no_sharding += layer.get_weight_grad(
         sharded=False)
       self.block_act_grad_space += layer.get_activation_grad()
-      self.block_optimizer_space += layer.get_optim()
+      self.block_optimizer_space += layer.get_optimizer()
 
       self.log.debug("%s %s %s", layer.name, 'FW flops:',
         human_format(layer.get_fw_flops(), 'flops'))
@@ -494,7 +586,7 @@ class Megatron: # stems from class (ParaGraph)
       self.log.debug("%s %s %s", layer.name, 'Act grad:',
         human_format(layer.get_activation_grad(), 'bytes'))
       self.log.debug("%s %s %s", layer.name, 'Optim:',
-        human_format(layer.get_optim(), 'bytes'))
+        human_format(layer.get_optimizer(), 'bytes'))
       self.log.debug("%s %s %s", layer.name, 'Incremental Weight:',
         human_format(self.block_weight_space, 'bytes'))
       self.log.debug("%s %s %s", layer.name, 'Incremental Act:',
@@ -615,8 +707,8 @@ class Megatron: # stems from class (ParaGraph)
     # and need to overlap DP during a single layer single minibatch time
     # In case of full interleaving, we propagate p minibatches through each
     # layer and need to overlap DP comm with p-1 minibatches over a layer
-    # In a mixed case, we can overlap DP communication of several 
-    # non-interleaved layers (L/gpu / interleaving_factor) over BW pass of 
+    # In a mixed case, we can overlap DP communication of several
+    # non-interleaved layers (L/gpu / interleaving_factor) over BW pass of
     # p-1 minibatches through the same amount of layers if memory capacity is
     # enough, or perform offload/prefetch after each layer-minibatch
     # For simplicity we count only bandwidth-optimal case
@@ -637,7 +729,7 @@ class Megatron: # stems from class (ParaGraph)
       assert self.block_act_space == self.minibatch_recompute_mem_saving, \
         "We expect with full act recomputation we reomopute ALL activations"
     else:
-      # with partial activation recomputation we need to reclaim memory 
+      # with partial activation recomputation we need to reclaim memory
       if self.exe.activation_recompute == "partial":
         self.block_act_space -= self.minibatch_recompute_mem_saving
       # Without full recompute, we keep activations for all layers on the GPU
@@ -654,7 +746,7 @@ class Megatron: # stems from class (ParaGraph)
     self.proc_act_grad_space = self.block_act_grad_space
     # Optimizer split  already accounted for during layers compilation
     # We should keep non-sharded weight grad for a current layer for AllReduce
-    # and one that we currently compute, so 2x total 
+    # and one that we currently compute, so 2x total
     if self.layers_per_proc == 1:
       self.proc_weight_grad_space = self.block_weight_grad_space_no_sharding
     else:
@@ -666,7 +758,8 @@ class Megatron: # stems from class (ParaGraph)
 
 
   def run(self, sys):
-    assert self._compiled, "You should first call self.compile()"
+    assert self._compiled, "You must first call self.compile()"
+    assert not self._executed
     assert isinstance(sys, System)
     self.sys = sys
     self._update_hw_throughput()
@@ -675,7 +768,6 @@ class Megatron: # stems from class (ParaGraph)
     # TODO def _compute_offload_requirements(self):
     # TODO incorporate 'weight_offload' and 'activations_offload'/'optimizer_offload'
     self._executed = True
-    # or make a big ass dict, or csv, or pandas?
 
   def _get_fw_offload_size(self):
     fw_offload_size = 0
@@ -896,7 +988,7 @@ class Megatron: # stems from class (ParaGraph)
       f"Mem capacity with offload: {human_format(self.get_proc_mem_cap_req_offload(), 'bytes')};\n" \
       f"Total Flops per processor: {human_format(self.get_useful_flops(), 'flops')};\n" \
       f"Compute efficiency: {self.get_compute_efficiency()*100:.2f}%;\n" \
-      f"System eficiency: {self.get_system_efficiency()*100:.2f}%;\n" \
+      f"System efficiency: {self.get_system_efficiency()*100:.2f}%;\n" \
       f"Total efficiency: {self.get_total_efficiency()*100:.2f}%;\n"
     for layer in self.megatron_block:
       layer.display_stats()

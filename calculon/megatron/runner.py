@@ -36,6 +36,8 @@ class Runner(calculon.CommandLine):
                     help='File path to execution configuration')
     sp.add_argument('system', type=str,
                     help='File path to system configuration')
+    sp.add_argument('stats', type=str,
+                    help='File path to stats output ("-" for stdout")')
 
   @staticmethod
   def run_command(logger, args):
@@ -49,7 +51,13 @@ class Runner(calculon.CommandLine):
     model = Megatron(Megatron.Application(app_json), logger)
     model.compile(Megatron.Execution(exe_json))
     model.run(System(sys_json))
-    model.display_stats()
+    if args.stats == '-':
+      model.display_stats()
+    elif args.stats.endswith('.json'):
+      with open(args.stats, 'w') as fd:
+        json.dump(model.get_json(), fd, indent=2)
+    else:
+      assert False, f'unknown stats extension: {args.stats}'
 
 
 calculon.CommandLine.register(Runner)

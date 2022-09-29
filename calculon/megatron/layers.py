@@ -59,6 +59,22 @@ class Layer:
     # parameter count, setting bytes_per_element to 1
     self.bytes_per_element = 1
 
+  def get_json(self):
+    return {
+      'name': self.name,
+      'fw_flops': self.get_fw_flops(),
+      'fw_mem_accessed': self.get_fw_mem_accessed(),
+      'fw_arithmetic_intensity': self.get_fw_arithmetic_intensity(),
+      'bw_flops': self.get_bw_flops(),
+      'bw_mem_accessed': self.get_bw_mem_accessed(),
+      'bw_arithmetic_intensity': self.get_bw_arithmetic_intensity(),
+      'weight': self.get_weight(),
+      'activation': self.get_activation(),
+      'weight_grad': self.get_weight_grad(),
+      'activation_grad': self.get_activation_grad(),
+      'optimizer': self.get_optimizer()
+    }
+
   def display_stats(self):
     stats = "Operation {0}:\n{1} FW flops, {2} FW bytes accessed,".format(
       self.name,
@@ -74,7 +90,7 @@ class Layer:
       human_format(self.get_activation(), 'bytes'),
       human_format(self.get_weight_grad(), 'bytes'),
       human_format(self.get_activation_grad(), 'bytes'),
-      human_format(self.get_optim(), 'bytes'))
+      human_format(self.get_optimizer(), 'bytes'))
     print(stats)
 
   def set_bytes_per_element(self, bytes_per_element):
@@ -139,7 +155,7 @@ class Layer:
     grad_mem = self.weight_grads + self.activation_grads + self.output_size
     grad_mem *= self.bytes_per_element
     # cover mem access for optimizer step and grad update separately
-    return fw_mem + grad_mem + self.get_optim() + self.get_weight_grad()
+    return fw_mem + grad_mem + self.get_optimizer() + self.get_weight_grad()
 
   def get_bw_arithmetic_intensity(self):
     if self.bw_flops == 0:
@@ -171,7 +187,7 @@ class Layer:
   def get_activation_grad(self):
     return self.activation_grads * self.bytes_per_element
 
-  def get_optim(self):
+  def get_optimizer(self):
     moments_size = self.optim_space * 4
     # Keep 32-bits master copy of weights and grads, plus both moments (m,v)
     if self.bytes_per_element < 4:
