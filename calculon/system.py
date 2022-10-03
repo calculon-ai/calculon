@@ -15,25 +15,56 @@
  * limitations under the License.
 """
 
+from .network import *
 
 class System:
   """Configuration for a system."""
-  def __init__(self, kvs):
+
+  def __init__(self, cfg):
     # bw = GB/s
     # cap = GB
-    self.matrix_tflops = kvs['matrix_tflops']
-    self.matrix_flop_eff = kvs['matrix_flop_eff']
-    self.vector_tflops = kvs['vector_tflops']
-    self.vector_flop_eff = kvs['vector_flop_eff']
-    self.mem_tier1_bw = kvs['mem_tier1_bw']
-    self.mem_tier1_cap = kvs['mem_tier1_cap']
-    self.mem_tier1_eff = kvs['mem_tier1_eff']
-    self.mem_tier2_bw = kvs['mem_tier2_bw']
-    self.mem_tier2_cap = kvs['mem_tier2_cap']
-    self.mem_tier2_eff = kvs['mem_tier2_eff']
-    self.net_tier1_bw = kvs['net_tier1_bw']
-    self.net_tier1_size = kvs['net_tier1_size']
-    self.net_tier1_eff = kvs['net_tier1_eff']
-    self.net_tier2_bw = kvs['net_tier2_bw']
-    self.net_tier2_size = kvs['net_tier2_size']
-    self.net_tier2_eff = kvs['net_tier2_eff']
+    self.matrix_tflops = cfg['matrix_tflops']
+    self.matrix_flop_eff = cfg['matrix_flop_eff']
+    self.vector_tflops = cfg['vector_tflops']
+    self.vector_flop_eff = cfg['vector_flop_eff']
+
+    self.mem_tier1_bw = cfg['mem_tier1_bw']
+    self.mem_tier1_cap = cfg['mem_tier1_cap']
+    self.mem_tier1_eff = cfg['mem_tier1_eff']
+
+    self.mem_tier2_bw = cfg['mem_tier2_bw']
+    self.mem_tier2_cap = cfg['mem_tier2_cap']
+    self.mem_tier2_eff = cfg['mem_tier2_eff']
+
+    self.net_tier1 = Network(cfg['net_tier1'])
+    self.net_tier2 = Network(cfg['net_tier2'])
+
+  def compute_throughput(self, type):
+    if type == 'vector':
+      return self.vector_tflops * self.vector_flop_eff * 1e12
+    elif type == 'matrix':
+      return self.matrix_tflops * self.matrix_flop_eff * 1e12
+    else:
+      assert False
+
+  def memory_throughput(self, tier):
+    if tier == 1:
+      return self.mem_tier1_bw * self.mem_tier1_eff * 1e9
+    elif tier == 2:
+      return self.mem_tier2_bw * self.mem_tier2_eff * 1e9
+    else:
+      assert False
+
+  def _network(self, tier):
+    if tier == 1:
+      return self.net_tier1
+    elif tier == 2:
+      return self.net_tier2
+    else:
+      assert False, f'Bad network tier ID: {tier}'
+
+  def network_size(self, tier):
+    return self._network(tier).size()
+
+  def network_time(self, tier, op, size):
+    return self._network(tier).time(op, size)

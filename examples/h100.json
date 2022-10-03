@@ -9,10 +9,26 @@
   "mem_tier2_bw": 512,
   "mem_tier2_cap": 1024,
   "mem_tier2_eff": 0.9,
-  "net_tier1_bw": 450,
-  "net_tier1_size": 256,
-  "net_tier1_eff": 0.8,
-  "net_tier2_bw": 50,
-  "net_tier2_size": 65536,
-  "net_tier2_eff": 0.9
+  "net_tier1": {
+    "bw": 450,
+    "eff": 0.8,
+    "size": 256,
+    "ops": {
+      "p2p": 1.0,
+      "reduce_scatter": 1.0,
+      "all_gather": 1.0,
+      "all_reduce": 1.0
+    }
+  },
+  "net_tier2": {
+    "bw": 50,
+    "eff": 0.9,
+    "size": 65536,
+    "ops": {
+      "p2p": 1.0,
+      "reduce_scatter": 1.0,
+      "all_gather": 1.0,
+      "all_reduce": 0.5
+    }
+  }
 }

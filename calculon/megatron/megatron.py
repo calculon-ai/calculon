@@ -39,37 +39,36 @@ class Megatron: # stems from class (ParaGraph)
 
   class Application:
     """Specifies the application configuration."""
-    def __init__(self, kvs):
-      self.name = kvs['name']
-      self.hidden = kvs['hidden']
-      self.seq_size = kvs['seq_size']
-      self.attn_heads = kvs['attn_heads']
-      self.num_layers = kvs['num_layers']
+    def __init__(self, cfg):
+      self.name = cfg['name']
+      self.hidden = cfg['hidden']
+      self.seq_size = cfg['seq_size']
+      self.attn_heads = cfg['attn_heads']
+      self.num_layers = cfg['num_layers']
 
   class Execution:
     """Specifies the execution configuration."""
-    def __init__(self, kvs):
-      self.num_procs = kvs['num_procs']
-      self.tensor_par = kvs['tensor_par']
-      self.pipeline_par = kvs['pipeline_par']
-      self.data_par = kvs['data_par']
+    def __init__(self, cfg):
+      self.num_procs = cfg['num_procs']
+      self.tensor_par = cfg['tensor_par']
+      self.pipeline_par = cfg['pipeline_par']
+      self.data_par = cfg['data_par']
       assert self.num_procs == self.tensor_par * self.pipeline_par * \
         self.data_par, "tensor * pipeline * data parallelism != num_procs"
-      self.batch_size = kvs['batch_size']
-      self.minibatch_size = kvs['minibatch_size']
-      self.datatype = kvs['datatype']
-      self.activation_recompute = kvs['activation_recompute']
+      self.batch_size = cfg['batch_size']
+      self.minibatch_size = cfg['minibatch_size']
+      self.datatype = cfg['datatype']
+      self.activation_recompute = cfg['activation_recompute']
       assert self.activation_recompute in ["full", "partial", "none"]
-      self.pipeline_interleaving = kvs['pipeline_interleaving']
-      self.optimizer_sharding = kvs['optimizer_sharding']
-      self.in_network_allreduce = kvs['in_network_allreduce']
-      self.sequence_par = kvs['sequence_par']
-      self.p2p_rs_ag = kvs['p2p_rs_ag']
-      self.data_par_overlap = kvs['data_par_overlap']
-      self.weight_offload = kvs['weight_offload']
-      self.activations_offload = kvs['activations_offload']
-      self.optimizer_offload = kvs['optimizer_offload']
-      self.training = kvs['training']
+      self.pipeline_interleaving = cfg['pipeline_interleaving']
+      self.optimizer_sharding = cfg['optimizer_sharding']
+      self.sequence_par = cfg['sequence_par']
+      self.p2p_rs_ag = cfg['p2p_rs_ag']
+      self.data_par_overlap = cfg['data_par_overlap']
+      self.weight_offload = cfg['weight_offload']
+      self.activations_offload = cfg['activations_offload']
+      self.optimizer_offload = cfg['optimizer_offload']
+      self.training = cfg['training']
 
 
   # TODO refactor to be a member of Application class
@@ -96,9 +95,9 @@ class Megatron: # stems from class (ParaGraph)
     self.matrix_throughput = 0
     self.mem_throughput = 0
     self.offload_throughput = 0
-    self.tp_net_throughput = 0
-    self.dp_net_throughput = 0
-    self.pp_net_throughput = 0
+    self.tp_net_tier = 0
+    self.dp_net_tier = 0
+    self.pp_net_tier = 0
 
     # metrics collected after run for each minibatch
     self.minibatch_fw_flops = 0
@@ -189,9 +188,6 @@ class Megatron: # stems from class (ParaGraph)
     j['matrix_throughput'] = self.matrix_throughput
     j['mem_throughput'] = self.mem_throughput
     j['offload_throughput'] = self.offload_throughput
-    j['tp_net_throughput'] = self.tp_net_throughput
-    j['dp_net_throughput'] = self.dp_net_throughput
-    j['pp_net_throughput'] = self.pp_net_throughput
     j['minibatch_fw_flops'] = self.minibatch_fw_flops
     j['minibatch_fw_flops_time'] = self.minibatch_fw_flops_time
     j['minibatch_fw_mem_accessed'] = self.minibatch_fw_mem_accessed
@@ -454,44 +450,48 @@ class Megatron: # stems from class (ParaGraph)
     self._compiled = True
 
   def _update_hw_throughput(self):
-    self.vector_throughput = self.sys.vector_tflops * 1e12 * \
-      self.sys.vector_flop_eff
-    self.matrix_throughput = self.sys.matrix_tflops * 1e12 * \
-      self.sys.matrix_flop_eff
-    self.mem_throughput = self.sys.mem_tier1_bw * \
-      self.sys.mem_tier1_eff * 1000 ** 3
-    self.offload_throughput = self.sys.mem_tier2_bw * \
-      self.sys.mem_tier2_eff * 1000 ** 3
-    assert (self.exe.tensor_par <= self.sys.net_tier1_size or
-            self.exe.tensor_par <= self.sys.net_tier2_size), \
+    # Determines compute and memory throughputs
+    self.vector_throughput = self.sys.compute_throughput('vector')
+    self.matrix_throughput = self.sys.compute_throughput('matrix')
+    self.mem_throughput = self.sys.memory_throughput(1)
+    self.offload_throughput = self.sys.memory_throughput(2)
+
+    # Determines network tier for TP
+    net_tier1_size = self.sys.network_size(1)
+    net_tier1_size = self.sys.network_size(2)
+    assert (self.exe.tensor_par <= net_tier1_size or
+            self.exe.tensor_par <= net_tier2_size), \
             f"t={self.exe.tensor_par} is larger than the network " \
             f"size {self.sys.net_tier1_size} " \
             f"or {self.sys.net_tier2_size}"
-    self.tp_net_throughput = self.sys.net_tier2_bw * \
-      self.sys.net_tier2_eff * 1000 ** 3
-    if self.exe.tensor_par <= self.sys.net_tier1_size:
-      self.tp_net_throughput = self.sys.net_tier1_bw * \
-        self.sys.net_tier1_eff * 1000 ** 3
-    assert (self.exe.data_par * self.exe.tensor_par <= self.sys.net_tier1_size or
-            self.exe.data_par * self.exe.tensor_par <= self.sys.net_tier2_size), \
+    if self.exe.tensor_par <= net_tier1_size:
+      self.tp_net_tier = 1
+    else:
+      self.tp_net_tier = 2
+
+    # Determines network tier for DP
+    assert (self.exe.data_par * self.exe.tensor_par <= net_tier1_size or
+            self.exe.data_par * self.exe.tensor_par <= net_tier2_size), \
             f"d={self.exe.data_par} x t={self.exe.tensor_par} is larger than the " \
             f"network size {self.sys.net_tier1_size} " \
             f"or {self.sys.net_tier2_size}"
-    self.dp_net_throughput = self.sys.net_tier2_bw * \
-      self.sys.net_tier2_eff * 1000 ** 3
-    if self.exe.data_par * self.exe.tensor_par <= self.sys.net_tier1_size:
-      self.dp_net_throughput = self.sys.net_tier1_bw * \
-        self.sys.net_tier1_eff * 1000 ** 3
-    assert (self.exe.pipeline_par * self.exe.data_par * self.exe.tensor_par <= self.sys.net_tier1_size or
-            self.exe.pipeline_par * self.exe.data_par * self.exe.tensor_par <= self.sys.net_tier2_size), \
+    if self.exe.data_par * self.exe.tensor_par <= net_tier1_size:
+      self.dp_net_tier = 1
+    else:
+      self.dp_net_tier = 2
+
+    # Determines network tier for PP
+    assert (self.exe.pipeline_par * self.exe.data_par * self.exe.tensor_par <= net_tier1_size or
+            self.exe.pipeline_par * self.exe.data_par * self.exe.tensor_par <= net_tier2_size), \
             f"p={self.exe.pipeline_par} x d={self.exe.data_par} x t={self.exe.tensor_par} is larger than the " \
             f"network size {self.sys.net_tier1_size} " \
             f"or {self.sys.net_tier2_size}"
-    self.pp_net_throughput = self.sys.net_tier2_bw * \
-      self.sys.net_tier2_eff * 1000 ** 3
-    if self.exe.pipeline_par * self.exe.data_par * self.exe.tensor_par < self.sys.net_tier1_size:
-      self.pp_net_throughput = self.sys.net_tier1_bw * \
-        self.sys.net_tier1_eff * 1000 ** 3
+    if (self.exe.pipeline_par * self.exe.data_par * self.exe.tensor_par <=
+        net_tier1_size):
+      self.pp_net_tier = 1
+    else:
+      self.pp_net_tier = 2
+
 
   def _compute_minibatch_stats(self):
     self.log.debug("%s %s", "vector_throughput:",
@@ -502,12 +502,6 @@ class Megatron: # stems from class (ParaGraph)
       human_format(self.mem_throughput, 'bandwidth'))
     self.log.debug("%s %s", "offload_throughput:",
       human_format(self.offload_throughput, 'bandwidth'))
-    self.log.debug("%s %s", "tp_net_throughput:",
-      human_format(self.tp_net_throughput, 'bandwidth'))
-    self.log.debug("%s %s", "pp_net_throughput:",
-      human_format(self.pp_net_throughput, 'bandwidth'))
-    self.log.debug("%s %s", "dp_net_throughput:",
-      human_format(self.dp_net_throughput, 'bandwidth'))
 
     for layer in self.megatron_block:
       flops_throughput = self.vector_throughput
@@ -611,11 +605,17 @@ class Megatron: # stems from class (ParaGraph)
       else:
         self.minibatch_fw_tp_size = 2*2 * self.bytes_per_element * \
           self.activation_size
-    self.minibatch_fw_tp_time = \
-      self.minibatch_fw_tp_size / self.tp_net_throughput
-    if self.exe.in_network_allreduce and not (
-      self.exe.sequence_par or self.exe.p2p_rs_ag):
-        self.minibatch_fw_tp_time /= 2
+
+    if not self.exe.sequence_par and not self.exe.p2p_rs_ag:
+      self.minibatch_fw_tp_time = self.sys.network_time(
+        self.tp_net_tier, 'all_reduce', self.minibatch_fw_tp_size)
+    else:
+      self.minibatch_fw_tp_time = \
+        self.sys.network_time(self.tp_net_tier, 'reduce_scatter',
+                              self.minibatch_fw_tp_size) + \
+        self.sys.network_time(self.tp_net_tier, 'all_gather',
+                              self.minibatch_fw_tp_size)
+
     if self.exe.training:
       self.minibatch_bw_tp_size = self.minibatch_fw_tp_size
       self.minibatch_bw_tp_time = self.minibatch_fw_tp_time
@@ -629,11 +629,14 @@ class Megatron: # stems from class (ParaGraph)
     else:
       self.minibatch_fw_pp_size *= \
         self.bytes_per_element * self.activation_size
-    self.minibatch_fw_pp_time = \
-      self.minibatch_fw_pp_size / self.pp_net_throughput
+
+    self.minibatch_fw_pp_time = self.sys.network_time(
+      self.pp_net_tier, 'p2p', self.minibatch_fw_pp_size)
+
     if self.exe.training:
       self.minibatch_bw_pp_size = self.minibatch_fw_pp_size
       self.minibatch_bw_pp_time = self.minibatch_fw_pp_time
+
     self.log.debug("%s %s", 'TP comm FW size:',
       human_format(self.minibatch_fw_tp_size, 'bytes'))
     self.log.debug("%s %s", 'TP comm FW time:', self.minibatch_fw_tp_time)
@@ -697,13 +700,28 @@ class Megatron: # stems from class (ParaGraph)
         self.minibatch_recompute_time +
         self.minibatch_fw_tp_time + self.minibatch_bw_tp_time) +
       self.minibatch_fw_pp_time + self.minibatch_bw_pp_time)
-    self.proc_dp_comm_size = 2 * self.block_weight_space
-    layer_dp_effective_time = self.proc_dp_comm_size / self.dp_net_throughput
-    if self.exe.in_network_allreduce and not self.exe.optimizer_sharding:
-      layer_dp_effective_time /= 2
+
+    # Determines how long it takes to perform the DP per layer
+    if self.exe.optimizer_sharding:
+      # When performing optimizer sharding, the communication time is a
+      # reduce-scatter plus an all-gather.
+      # TODO(misaev): is the AG the same size as RS?
+      self.proc_dp_comm_size = self.block_weight_space * 2
+      layer_dp_effective_time = \
+        self.sys.network_time(self.dp_net_tier, 'reduce_scatter',
+                              self.block_weight_space) + \
+        self.sys.network_time(self.dp_net_tier, 'all_gather',
+                              self.block_weight_space)
+    else:
+      # When not performing optimizer sharding, the communication time is a
+      # single all-reduce.
+      self.proc_dp_comm_size = self.block_weight_space
+      layer_dp_effective_time = self.sys.network_time(
+        self.dp_net_tier, 'all_reduce', self.proc_dp_comm_size)
+
     # DP overlap happens if DP time for a previous layer(s) is lower than
     # minibatch BW pass time for next pack of consequtive layers
-    # In case of no interleving, we move a single minibatch throug each layer
+    # In case of no interleaving, we move a single minibatch through each layer
     # and need to overlap DP during a single layer single minibatch time
     # In case of full interleaving, we propagate p minibatches through each
     # layer and need to overlap DP comm with p-1 minibatches over a layer
@@ -720,6 +738,7 @@ class Megatron: # stems from class (ParaGraph)
       self.proc_dp_comm_time = layer_dp_effective_time + exposed_time
     else:
       self.proc_dp_comm_time = self.layers_per_proc * layer_dp_effective_time
+
     # memory capacity stats
     self.proc_weight_space = self.block_weight_space * self.layers_per_proc
     # account for activation recomputation

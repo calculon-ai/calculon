@@ -9,7 +9,6 @@
   "activation_recompute": "partial",
   "pipeline_interleaving": 2,
   "optimizer_sharding": true,
-  "in_network_allreduce": true,
   "sequence_par": true,
   "p2p_rs_ag": true,
   "data_par_overlap": true,
