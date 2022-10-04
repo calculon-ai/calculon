@@ -28,7 +28,7 @@
       "p2p": 1.0,
       "reduce_scatter": 1.0,
       "all_gather": 1.0,
-      "all_reduce": 0.5
+      "all_reduce": 1.0
     }
   }
 }
