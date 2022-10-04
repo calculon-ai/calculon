@@ -364,7 +364,8 @@ class Fork(Layer):
 
 class TPComm(Layer):
   def __init__(self, name, act_size, comm_size,
-               split_comm=False, conjugate=False):
+               split_comm=False, conjugate=False,
+               needs_recompute=False):
     # FW pass Identity/AllGather, BW pass AllReduce/ReduceScatter
     fw_flops = 0
     bw_flops = act_size * (comm_size - 1)
@@ -384,4 +385,5 @@ class TPComm(Layer):
                      inputs_size=in_size,
                      output_size=out_size,
                      activation_space=out_size,
-                     activation_grads=in_size)
+                     activation_grads=in_size,
+                     needs_recompute=needs_recompute)

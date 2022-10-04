@@ -6,14 +6,14 @@
   "batch_size": 4096,
   "minibatch_size": 1,
   "datatype": "bfloat16",
-  "activation_recompute": "partial",
+  "activation_recompute": "full",
   "pipeline_interleaving": 2,
   "optimizer_sharding": true,
   "sequence_par": true,
   "p2p_rs_ag": true,
   "data_par_overlap": true,
   "weight_offload": true,
-  "activations_offload": true,
+  "activations_offload": false,
   "optimizer_offload": true,
   "training": true
 }

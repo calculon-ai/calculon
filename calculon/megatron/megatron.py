@@ -120,6 +120,7 @@ class Megatron: # stems from class (ParaGraph)
     self.minibatch_recompute_time = 0
     self.minibatch_fw_tp_size = 0
     self.minibatch_fw_tp_time = 0
+    self.minibatch_recomm_tp_time = 0
     self.minibatch_bw_tp_size = 0
     self.minibatch_bw_tp_time = 0
     self.minibatch_fw_pp_size = 0
@@ -144,6 +145,7 @@ class Megatron: # stems from class (ParaGraph)
     self.block_bw_mem_accessed = 0
     self.block_bw_mem_time = 0
     self.block_recompute_time = 0
+    self.block_recomm_time = 0
     self.block_tp_comm_size = 0
     self.block_tp_comm_time = 0
 
@@ -164,6 +166,7 @@ class Megatron: # stems from class (ParaGraph)
     self.proc_bw_mem_accessed = 0
     self.proc_bw_mem_time = 0
     self.proc_recompute_time = 0
+    self.proc_recomm_time = 0
     self.proc_bubble_time = 0
     self.proc_tp_comm_size = 0
     self.proc_tp_comm_time = 0
@@ -185,6 +188,7 @@ class Megatron: # stems from class (ParaGraph)
     j['proc_fw_time'] = self.get_proc_fw_time()
     j['proc_bw_time'] = self.get_proc_bw_time()
     j['proc_recompute_time'] = self.get_proc_recompute_time()
+    j['proc_recomm_time'] = self.get_proc_recomm_time()
     j['proc_bubble_time'] = self.get_proc_bubble_time()
     j['proc_tp_comm_time'] = self.get_proc_tp_comm_time()
     j['proc_pp_comm_time'] = self.get_proc_pp_comm_time()
@@ -227,7 +231,8 @@ class Megatron: # stems from class (ParaGraph)
       self.activation_size,
       self.exe.tensor_par,
       split_comm=(self.exe.sequence_par or self.exe.p2p_rs_ag),
-      conjugate=False))
+      conjugate=False,
+      needs_recompute=recompute_flag))
     self.megatron_block.append(Fork(
       "AttnBlock_Fork",
       self.activation_size, 3))
@@ -282,7 +287,8 @@ class Megatron: # stems from class (ParaGraph)
       self.activation_size,
       self.exe.tensor_par,
       split_comm=(self.exe.sequence_par or self.exe.p2p_rs_ag),
-      conjugate=True))
+      conjugate=True,
+      needs_recompute=recompute_flag))
     if self.exe.sequence_par:
       self.megatron_block.append(DropOut(
         "AttnBlock_DropOut",
@@ -324,7 +330,8 @@ class Megatron: # stems from class (ParaGraph)
       self.activation_size,
       self.exe.tensor_par,
       split_comm=(self.exe.sequence_par or self.exe.p2p_rs_ag),
-      conjugate=False))
+      conjugate=False,
+      needs_recompute=recompute_flag))
     self.megatron_block.append(Linear(
       "MlpBlock_MLP1",
       self.batch_seq,
@@ -346,7 +353,8 @@ class Megatron: # stems from class (ParaGraph)
       self.activation_size,
       self.exe.tensor_par,
       split_comm=(self.exe.sequence_par or self.exe.p2p_rs_ag),
-      conjugate=True))
+      conjugate=True,
+      needs_recompute=recompute_flag))
 
     if self.exe.sequence_par:
       self.megatron_block.append(DropOut(
@@ -564,6 +572,8 @@ class Megatron: # stems from class (ParaGraph)
                               self.minibatch_fw_tp_size) + \
         self.sys.network_time(self.tp_net_tier, 'all_gather',
                               self.minibatch_fw_tp_size)
+    if self.exe.activation_recompute == "full":
+      self.minibatch_recomm_tp_time = self.minibatch_fw_tp_time
 
     if self.exe.training:
       self.minibatch_bw_tp_size = self.minibatch_fw_tp_size
@@ -633,6 +643,9 @@ class Megatron: # stems from class (ParaGraph)
     self.block_tp_comm_time = self.num_minibatches * (
       self.minibatch_fw_tp_time + self.minibatch_bw_tp_time)
     self.proc_tp_comm_time = self.layers_per_proc * self.block_tp_comm_time
+    self.block_recomm_time = self.num_minibatches * \
+      self.minibatch_recomm_tp_time
+    self.proc_recomm_time = self.layers_per_proc * self.block_recomm_time
     self.proc_pp_comm_size = self.num_minibatches * (
       self.minibatch_fw_pp_size + self.minibatch_bw_pp_size)
     self.proc_pp_comm_time = self.num_minibatches * (
@@ -646,7 +659,7 @@ class Megatron: # stems from class (ParaGraph)
       self.layers_per_proc / self.exe.pipeline_interleaving * (
         self.minibatch_fw_flops_time + self.minibatch_fw_mem_time +
         self.minibatch_bw_flops_time + self.minibatch_bw_mem_time +
-        self.minibatch_recompute_time +
+        self.minibatch_recompute_time + self.minibatch_recomm_tp_time +
         self.minibatch_fw_tp_time + self.minibatch_bw_tp_time) +
       self.minibatch_fw_pp_time + self.minibatch_bw_pp_time)
 
@@ -772,6 +785,9 @@ class Megatron: # stems from class (ParaGraph)
   def get_proc_recompute_time(self):
     return self.proc_recompute_time
 
+  def get_proc_recomm_time(self):
+    return self.proc_recomm_time
+
   def get_proc_bubble_time(self):
     return self.proc_bubble_time
 
@@ -788,6 +804,7 @@ class Megatron: # stems from class (ParaGraph)
     time = self.get_proc_fw_time()
     time += self.get_proc_bw_time()
     time += self.get_proc_recompute_time()
+    time += self.get_proc_recomm_time()
     time += self.get_proc_bubble_time()
     time += self.get_proc_tp_comm_time()
     time += self.get_proc_pp_comm_time()
@@ -828,7 +845,7 @@ class Megatron: # stems from class (ParaGraph)
   def get_proc_act_checkpoint_size(self):
     if self.exe.activation_recompute != 'full':
       return 0
-    return self.bytes_per_element * self.block_activation_size * \
+    return self.bytes_per_element * self.block_act_space * \
       self.layers_per_proc
 
   def get_proc_weight_grad_space(self):
@@ -942,6 +959,7 @@ class Megatron: # stems from class (ParaGraph)
       f"Batch FW time: {self.get_proc_fw_time():.2f};\n" \
       f"Batch BW time: {self.get_proc_bw_time():.2f};\n" \
       f"Batch recompute time: {self.get_proc_recompute_time():.2f};\n" \
+      f"Batch recomm time: {self.get_proc_recomm_time():.2f};\n" \
       f"Batch bubble time: {self.get_proc_bubble_time():.2f};\n" \
       f"Batch TP comm time: {self.get_proc_tp_comm_time():.2f};\n" \
       f"Batch PP comm time: {self.get_proc_pp_comm_time():.2f};\n" \
