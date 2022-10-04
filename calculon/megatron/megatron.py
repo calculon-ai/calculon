@@ -407,7 +407,7 @@ class Megatron: # stems from class (ParaGraph)
 
     # Determines network tier for TP
     net_tier1_size = self.sys.network_size(1)
-    net_tier1_size = self.sys.network_size(2)
+    net_tier2_size = self.sys.network_size(2)
     assert (self.exe.tensor_par <= net_tier1_size or
             self.exe.tensor_par <= net_tier2_size), \
             f"t={self.exe.tensor_par} is larger than the network " \
