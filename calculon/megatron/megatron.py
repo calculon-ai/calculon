@@ -54,12 +54,12 @@ class Megatron: # stems from class (ParaGraph)
       self.pipeline_par = cfg['pipeline_par']
       self.data_par = cfg['data_par']
       assert self.num_procs == self.tensor_par * self.pipeline_par * \
-        self.data_par, "tensor * pipeline * data parallelism != num_procs"
+        self.data_par, 'tensor * pipeline * data parallelism != num_procs'
       self.batch_size = cfg['batch_size']
       self.minibatch_size = cfg['minibatch_size']
       self.datatype = cfg['datatype']
       self.activation_recompute = cfg['activation_recompute']
-      assert self.activation_recompute in ["full", "partial", "none"]
+      assert self.activation_recompute in ['full', 'partial', 'none']
       self.pipeline_interleaving = cfg['pipeline_interleaving']
       self.optimizer_sharding = cfg['optimizer_sharding']
       self.sequence_par = cfg['sequence_par']
@@ -69,6 +69,14 @@ class Megatron: # stems from class (ParaGraph)
       self.activations_offload = cfg['activations_offload']
       self.optimizer_offload = cfg['optimizer_offload']
       self.training = cfg['training']
+      if self.activations_offload:
+        assert self.activation_recompute != 'full'
+
+  # This is used for errors where the user may not be fully aware of
+  # limitations. Use it like this:
+  #   raise self.Error(f'Foo bar {num1} is not {num2}')
+  class Error(Exception):
+    pass
 
 
   # TODO refactor to be a member of Application class
@@ -368,7 +376,13 @@ class Megatron: # stems from class (ParaGraph)
 
     self.num_minibatches = self.exe.batch_size / self.exe.data_par / \
       self.exe.minibatch_size
+    if self.app.num_layers % self.exe.pipeline_par != 0:
+      raise self.Error(f'Pipeline parallelism must evenly divide the number of '
+                       'layers')
     self.layers_per_proc = self.app.num_layers / self.exe.pipeline_par
+    if self.layers_per_proc % self.exe.pipeline_interleaving != 0:
+      raise self.Error(f'Pipeline interleaving must be a factor value of the '
+                       'number of layers per processor')
     self.bytes_per_element = self.types_size_dict[self.exe.datatype]
 
     # Build model during the compilation step
@@ -681,7 +695,7 @@ class Megatron: # stems from class (ParaGraph)
     # (no scaling by L/gpu)
     if self.exe.activation_recompute == "full":
       assert self.block_act_space == self.minibatch_recompute_mem_saving, \
-        "We expect with full act recomputation we reomopute ALL activations"
+        "We expect with full act recomputation we recompute ALL activations"
     else:
       # with partial activation recomputation we need to reclaim memory
       if self.exe.activation_recompute == "partial":

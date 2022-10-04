@@ -48,9 +48,14 @@ class Runner(calculon.CommandLine):
     with open(args.system, 'r') as fd:
       sys_json = json.load(fd)
 
-    model = Megatron(Megatron.Application(app_json), logger)
-    model.compile(Megatron.Execution(exe_json))
-    model.run(System(sys_json))
+    try:
+      model = Megatron(Megatron.Application(app_json), logger)
+      model.compile(Megatron.Execution(exe_json))
+      model.run(System(sys_json))
+    except Megatron.Error as error:
+      print(f'ERROR: {error}')
+      return -1
+
     if args.stats == '-':
       model.display_stats()
     elif args.stats.endswith('.json'):
