@@ -63,7 +63,7 @@ class Megatron: # stems from class (ParaGraph)
       self.activation_recompute = cfg['activation_recompute']
       assert self.activation_recompute in ['full', 'partial', 'none']
       self.pipeline_interleaving = cfg['pipeline_interleaving']
-      assert 0 < self.pipeline_interleaving <= self.pipeline_par, \
+      assert self.pipeline_interleaving > 0, \
         f'Bad pipeline interleaving of {self.pipeline_interleaving}'
       self.optimizer_sharding = cfg['optimizer_sharding']
       self.sequence_par = cfg['sequence_par']
@@ -106,8 +106,11 @@ class Megatron: # stems from class (ParaGraph)
   @staticmethod
   def get_valid_pipeline_interleavings(num_layers, pipeline_par):
     assert num_layers % pipeline_par == 0
-    max_ppint = min(pipeline_par, num_layers // pipeline_par)
-    yield from Megatron._factors(max_ppint)
+    if pipeline_par == 1:
+      yield 1
+    else:
+      max_ppint = num_layers // pipeline_par
+      yield from Megatron._factors(max_ppint)
 
   @staticmethod
   def get_valid_minibatch_sizes(data_par, batch_size):
@@ -421,11 +424,14 @@ class Megatron: # stems from class (ParaGraph)
     self.num_minibatches = self.exe.batch_size / self.exe.data_par / \
       self.exe.minibatch_size
     if self.app.num_layers % self.exe.pipeline_par != 0:
-      raise self.Error(f'Pipeline parallelism must evenly divide the number of '
+      raise self.Error('Pipeline parallelism must evenly divide the number of '
                        'layers')
     self.layers_per_proc = self.app.num_layers / self.exe.pipeline_par
+    if self.exe.pipeline_interleaving > self.layers_per_proc:
+      raise self.Error('Pipeline interleaving must be less than or equal to '
+                       'the number of layers per processor')
     if self.layers_per_proc % self.exe.pipeline_interleaving != 0:
-      raise self.Error(f'Pipeline interleaving must be a factor value of the '
+      raise self.Error('Pipeline interleaving must be a factor value of the '
                        'number of layers per processor')
     self.bytes_per_element = self.types_size_dict[self.exe.datatype]
 

@@ -34,6 +34,8 @@ class OptimalExecution(calculon.CommandLine):
     sp.set_defaults(func=OptimalExecution.run_command)
     sp.add_argument('-d', '--debug', action='store_true',
                     help='Loop over executions, don\'t run them')
+    sp.add_argument('-n', '--nofail', action='store_true',
+                    help='Ensure that no calculation fails')
     sp.add_argument('application', type=str,
                     help='File path to application configuration')
     sp.add_argument('num_procs', type=int,
@@ -113,9 +115,11 @@ class OptimalExecution(calculon.CommandLine):
                                     best_time = stats['proc_total_time']
                                     best_exe = exe_json
                                     best_stats = stats
-                                except Megatron.Error:
-                                  logger.info(f'{exe_count} -> n/a')
+                                except Megatron.Error as ex:
+                                  logger.info(f'{exe_count} -> {ex}')
                                   bad_exe_count += 1
+                                  if args.nofail:
+                                    return -1
                               else:
                                 logger.info(f'{exe_count}')
 
@@ -131,7 +135,7 @@ class OptimalExecution(calculon.CommandLine):
       logger.info(f'Best total time: {best_time}')
       with open(args.execution, 'w') as fd:
         json.dump(best_exe, fd, indent=2)
-      logger.info(f'Best execution: {args.stats}')
+      logger.info(f'Best execution: {args.execution}')
       with open(args.stats, 'w') as fd:
         json.dump(best_stats, fd, indent=2)
       logger.info(f'Best stats: {args.stats}')
