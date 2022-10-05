@@ -223,7 +223,6 @@ class Megatron: # stems from class (ParaGraph)
     j['proc_act_grad_space'] = self.get_proc_act_grad_space()
     j['proc_weight_grad_space'] = self.get_proc_weight_grad_space()
     j['proc_optimizer_space'] = self.get_proc_optimizer_space()
-    j['proc_mem_cap_req_no_offload'] = self.get_proc_mem_cap_req_no_offload()
     j['proc_fw_time'] = self.get_proc_fw_time()
     j['proc_bw_time'] = self.get_proc_bw_time()
     j['proc_recompute_time'] = self.get_proc_recompute_time()
@@ -237,9 +236,8 @@ class Megatron: # stems from class (ParaGraph)
     j['weight_offload_bw_req'] = self.get_weight_offload_bw_req()
     j['optim_offload_bw_req'] = self.get_optim_offload_bw_req()
     j['offload_mem_bw_req'] = self.get_offload_mem_bw_req()
-    j['proc_mem_cap_req'] = self.get_proc_mem_cap_req()
-    j['proc_mem_cap_req_no_offload'] = self.get_proc_mem_cap_req_no_offload()
-    j['proc_mem_cap_req_offload'] = self.get_proc_mem_cap_req_offload()
+    j['proc_mem_tier1_cap_req'] = self.get_proc_mem_tier1_cap_req()
+    j['proc_mem_tier2_cap_req'] = self.get_proc_mem_tier2_cap_req()
     j['useful_flops'] = self.get_useful_flops()
     j['compute_efficiency'] = self.get_compute_efficiency()
     j['system_efficiency'] = self.get_system_efficiency()
@@ -779,6 +777,13 @@ class Megatron: # stems from class (ParaGraph)
     self.proc_optimizer_space = \
       self.block_optimizer_space * self.layers_per_proc
 
+  def _check_mem_caps(self):
+    if self.get_proc_mem_tier1_cap_req() > self.sys.mem_tier1_cap:
+      raise self.Error(f'Mem tier1 needs {self.get_proc_mem_tier1_cap_req()} '
+                       f'but only has {self.sys.mem_tier1_cap}')
+    if self.get_proc_mem_tier2_cap_req() > self.sys.mem_tier2_cap:
+      raise self.Error(f'Mem tier2 needs {self.get_proc_mem_tier2_cap_req()} '
+                       f'but only has {self.sys.mem_tier2_cap}')
 
   def run(self, sys):
     assert self._compiled, "You must first call self.compile()"
@@ -788,6 +793,7 @@ class Megatron: # stems from class (ParaGraph)
     self._update_hw_throughput()
     self._compute_minibatch_stats()
     self._compute_batch_stats()
+    self._check_mem_caps()
     # TODO def _compute_offload_requirements(self):
     # TODO incorporate 'weight_offload' and 'activations_offload'/'optimizer_offload'
     self._executed = True
@@ -865,7 +871,7 @@ class Megatron: # stems from class (ParaGraph)
     total_flops = self.get_useful_flops()
     compute_time = self.get_proc_fw_time() + self.get_proc_bw_time()
     perfect_time = self.layers_per_proc * self.num_minibatches * \
-      total_flops / (self.sys.matrix_tflops * 1e12)
+      total_flops / self.sys.matrix_flops
     return perfect_time / compute_time
 
   def get_system_efficiency(self):
@@ -875,7 +881,7 @@ class Megatron: # stems from class (ParaGraph)
   def get_total_efficiency(self):
     total_flops = self.get_useful_flops()
     perfect_time = self.layers_per_proc * self.num_minibatches * \
-      total_flops / (self.sys.matrix_tflops * 1e12)
+      total_flops / self.sys.matrix_flops
     return perfect_time / self.get_proc_total_time()
 
   def get_proc_weight_space(self):
@@ -899,47 +905,36 @@ class Megatron: # stems from class (ParaGraph)
   def get_proc_optimizer_space(self):
     return self.proc_optimizer_space
 
-  def get_proc_mem_cap_req_no_offload(self):
-    mem = self.proc_weight_space + \
-      self.proc_act_space + \
-      self.get_proc_act_checkpoint_size() + \
-      self.proc_weight_grad_space + \
-      self.proc_act_grad_space + \
-      self.proc_optimizer_space
-    return mem
-
-  def get_proc_mem_cap_req_offload(self):
-    if self.layers_per_proc == 1:
-      return self.get_proc_mem_cap_req_no_offload()
-    mem = self.block_weight_space * 2 + \
-      self.block_act_space * 2 + \
-      self.get_proc_act_checkpoint_size() + \
-      self.block_weight_grad_space_no_sharding * 2 + \
-      self.get_proc_act_grad_space() + \
-      self.block_optimizer_space * 2
-    return mem
-
-  def get_proc_mem_cap_req(self):
-    if self.layers_per_proc == 1:
-      return self.get_proc_mem_cap_req_no_offload()
-    mem = 0
+  def _get_proc_mem_cap_reqs(self):
+    tier1 = 0
+    tier2 = 0
     if self.exe.weight_offload:
-      mem += self.block_weight_space * 2
+      tier1 += self.block_weight_space * 2
+      tier2 += self.get_proc_weight_space()
     else:
-      mem += self.proc_weight_space
+      tier1 += self.get_proc_weight_space()
     if self.exe.activations_offload:
-      mem += self.block_act_space * 2
+      tier1 += self.block_act_space * 2
+      tier2 += self.get_proc_act_space()
     else:
-      mem += self.proc_act_space
-    mem += self.get_proc_act_checkpoint_size()
+      tier1 += self.get_proc_act_space()
+    tier1 += self.get_proc_act_checkpoint_size()
     if self.exe.optimizer_offload:
-      mem += self.block_weight_grad_space_no_sharding * 2
-      mem += self.block_optimizer_space * 2
+      tier1 += self.block_weight_grad_space_no_sharding * 2
+      tier1 += self.block_optimizer_space * 2
+      tier2 += self.get_proc_weight_grad_space() + \
+        self.proc_optimizer_space
     else:
-      self.proc_weight_grad_space + \
-      self.proc_optimizer_space
-    mem += self.get_proc_act_grad_space()
-    return mem
+      tier1 += self.get_proc_weight_grad_space() + \
+        self.get_proc_optimizer_space()
+    tier1 += self.get_proc_act_grad_space()
+    return tier1, tier2
+
+  def get_proc_mem_tier1_cap_req(self):
+    return self._get_proc_mem_cap_reqs()[0]
+
+  def get_proc_mem_tier2_cap_req(self):
+    return self._get_proc_mem_cap_reqs()[1]
 
   def get_act_offload_bw_req(self):
     # We should be able to offload (write) activation during FW pass and
@@ -997,7 +992,6 @@ class Megatron: # stems from class (ParaGraph)
       f"Act grad: {human_format(self.get_proc_act_grad_space(), 'bytes')};\n" \
       f"Weight grad: {human_format(self.get_proc_weight_grad_space(), 'bytes')};\n" \
       f"Optim space: {human_format(self.get_proc_optimizer_space(), 'bytes')};\n" \
-      f"Total mem requirements: {human_format(self.get_proc_mem_cap_req_no_offload(), 'bytes')};\n" \
       f"Batch FW time: {self.get_proc_fw_time():.2f};\n" \
       f"Batch BW time: {self.get_proc_bw_time():.2f};\n" \
       f"Batch recompute time: {self.get_proc_recompute_time():.2f};\n" \
@@ -1011,9 +1005,8 @@ class Megatron: # stems from class (ParaGraph)
       f"Weight offload required BW: {human_format(self.get_weight_offload_bw_req(), 'bandwidth')};\n" \
       f"Optimizer offload required BW: {human_format(self.get_optim_offload_bw_req(), 'bandwidth')};\n" \
       f"Total offload required BW: {human_format(self.get_offload_mem_bw_req(), 'bandwidth')};\n" \
-      f"Mem capacity requirement: {human_format(self.get_proc_mem_cap_req(), 'bytes')};\n" \
-      f"Mem capacity without offload: {human_format(self.get_proc_mem_cap_req_no_offload(), 'bytes')};\n" \
-      f"Mem capacity with offload: {human_format(self.get_proc_mem_cap_req_offload(), 'bytes')};\n" \
+      f"Mem tier1 capacity requirement: {human_format(self.get_proc_mem_tier1_cap_req(), 'bytes')};\n" \
+      f"Mem tier2 capacity requirement: {human_format(self.get_proc_mem_tier2_cap_req(), 'bytes')};\n" \
       f"Total Flops per processor: {human_format(self.get_useful_flops(), 'flops')};\n" \
       f"Compute efficiency: {self.get_compute_efficiency()*100:.2f}%;\n" \
       f"System efficiency: {self.get_system_efficiency()*100:.2f}%;\n" \

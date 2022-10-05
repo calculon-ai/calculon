@@ -23,17 +23,17 @@ class System:
   def __init__(self, cfg):
     # bw = GB/s
     # cap = GB
-    self.matrix_tflops = cfg['matrix_tflops']
+    self.matrix_flops = cfg['matrix_tflops'] * 1e12
     self.matrix_flop_eff = cfg['matrix_flop_eff']
-    self.vector_tflops = cfg['vector_tflops']
+    self.vector_flops = cfg['vector_tflops'] * 1e12
     self.vector_flop_eff = cfg['vector_flop_eff']
 
-    self.mem_tier1_bw = cfg['mem_tier1_bw']
-    self.mem_tier1_cap = cfg['mem_tier1_cap']
+    self.mem_tier1_bw = cfg['mem_tier1_bw'] * 1e9
+    self.mem_tier1_cap = cfg['mem_tier1_cap'] * 1e9
     self.mem_tier1_eff = cfg['mem_tier1_eff']
 
-    self.mem_tier2_bw = cfg['mem_tier2_bw']
-    self.mem_tier2_cap = cfg['mem_tier2_cap']
+    self.mem_tier2_bw = cfg['mem_tier2_bw'] * 1e9
+    self.mem_tier2_cap = cfg['mem_tier2_cap'] * 1e9
     self.mem_tier2_eff = cfg['mem_tier2_eff']
 
     self.net_tier1 = Network(cfg['net_tier1'])
@@ -41,17 +41,17 @@ class System:
 
   def compute_throughput(self, type):
     if type == 'vector':
-      return self.vector_tflops * self.vector_flop_eff * 1e12
+      return self.vector_flops * self.vector_flop_eff
     elif type == 'matrix':
-      return self.matrix_tflops * self.matrix_flop_eff * 1e12
+      return self.matrix_flops * self.matrix_flop_eff
     else:
       assert False
 
   def memory_throughput(self, tier):
     if tier == 1:
-      return self.mem_tier1_bw * self.mem_tier1_eff * 1e9
+      return self.mem_tier1_bw * self.mem_tier1_eff
     elif tier == 2:
-      return self.mem_tier2_bw * self.mem_tier2_eff * 1e9
+      return self.mem_tier2_bw * self.mem_tier2_eff
     else:
       assert False
 
