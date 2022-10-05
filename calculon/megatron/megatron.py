@@ -57,10 +57,14 @@ class Megatron: # stems from class (ParaGraph)
         self.data_par, 'tensor * pipeline * data parallelism != num_procs'
       self.batch_size = cfg['batch_size']
       self.minibatch_size = cfg['minibatch_size']
+      assert self.batch_size % self.data_par == 0
+      assert (self.batch_size // self.data_par) % self.minibatch_size == 0
       self.datatype = cfg['datatype']
       self.activation_recompute = cfg['activation_recompute']
       assert self.activation_recompute in ['full', 'partial', 'none']
       self.pipeline_interleaving = cfg['pipeline_interleaving']
+      assert 0 < self.pipeline_interleaving <= self.pipeline_par, \
+        f'Bad pipeline interleaving of {self.pipeline_interleaving}'
       self.optimizer_sharding = cfg['optimizer_sharding']
       self.sequence_par = cfg['sequence_par']
       self.p2p_rs_ag = cfg['p2p_rs_ag']
@@ -78,6 +82,38 @@ class Megatron: # stems from class (ParaGraph)
   class Error(Exception):
     pass
 
+  @staticmethod
+  def _factors(x):
+    for cand in range(1, x+1):
+      if x % cand == 0:
+        yield cand
+
+  @staticmethod
+  def get_all_tensor_parallelisms(num_procs):
+    yield from Megatron._factors(num_procs)
+
+  @staticmethod
+  def get_all_pipeline_parallelisms(num_procs, tensor_par, num_layers):
+    assert num_procs % tensor_par == 0
+    max_pp = min(num_procs // tensor_par, num_layers)
+    yield from Megatron._factors(max_pp)
+
+  @staticmethod
+  def get_all_data_parallelisms(num_procs, tensor_par, pipeline_par):
+    assert num_procs % (tensor_par * pipeline_par) == 0
+    yield num_procs // (tensor_par * pipeline_par)
+
+  @staticmethod
+  def get_valid_pipeline_interleavings(num_layers, pipeline_par):
+    assert num_layers % pipeline_par == 0
+    max_ppint = min(pipeline_par, num_layers // pipeline_par)
+    yield from Megatron._factors(max_ppint)
+
+  @staticmethod
+  def get_valid_minibatch_sizes(data_par, batch_size):
+    assert batch_size % data_par == 0
+    local_batch_size = batch_size // data_par
+    yield from Megatron._factors(local_batch_size)
 
   # TODO refactor to be a member of Application class
   def __init__(self, app, log):

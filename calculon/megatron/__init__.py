@@ -17,4 +17,7 @@
 
 from .layers import *
 from .megatron import *
+
+# Command lines
+from .optimal_execution import OptimalExecution
 from .runner import Runner
