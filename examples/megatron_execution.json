@@ -1,8 +1,8 @@
 {
   "num_procs": 4096,
   "tensor_par": 8,
-  "pipeline_par": 64,
-  "data_par": 8,
+  "pipeline_par": 32,
+  "data_par": 16,
   "batch_size": 4096,
   "minibatch_size": 1,
   "datatype": "bfloat16",

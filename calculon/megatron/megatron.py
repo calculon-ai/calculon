@@ -792,6 +792,14 @@ class Megatron: # stems from class (ParaGraph)
       raise self.Error(f'Mem tier2 needs {self.get_proc_mem_tier2_cap_req()} '
                        f'but only has {self.sys.mem_tier2_cap}')
 
+  def _misc_sanity_checks(self):
+    if self.exe.tensor_par == 1:
+      assert self.get_proc_tp_comm_time() == 0
+    if self.exe.pipeline_par == 1:
+      assert self.get_proc_pp_comm_time() == 0
+    if self.exe.data_par == 1:
+      assert self.get_proc_dp_comm_time() == 0
+
   def run(self, sys):
     assert self._compiled, "You must first call self.compile()"
     assert not self._executed
@@ -801,6 +809,7 @@ class Megatron: # stems from class (ParaGraph)
     self._compute_minibatch_stats()
     self._compute_batch_stats()
     self._check_mem_caps()
+    self._misc_sanity_checks()
     # TODO def _compute_offload_requirements(self):
     # TODO incorporate 'weight_offload' and 'activations_offload'/'optimizer_offload'
     self._executed = True
