@@ -433,6 +433,13 @@ class Megatron: # stems from class (ParaGraph)
                        'number of layers per processor')
     self.bytes_per_element = self.types_size_dict[self.exe.datatype]
 
+    # Checks that enough layers per processor exist if offloading is being
+    # performed
+    if (self.exe.weight_offload or self.exe.activations_offload or
+        self.exe.optimizer_offload) and (self.layers_per_proc <= 2):
+      raise self.Error('Offloading requires each processor to handle at least 3'
+                       ' layers')
+
     # Build model during the compilation step
     self.batch_seq = self.exe.minibatch_size * self.app.seq_size
     self.activation_size = self.batch_seq * self.app.hidden
