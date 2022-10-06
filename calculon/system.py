@@ -26,16 +26,20 @@ class System:
     self.cfg = cfg
     self.matrix_flops = cfg['matrix_tflops'] * 1e12
     self.matrix_flop_eff = cfg['matrix_flop_eff']
+    assert 0 < self.matrix_flop_eff <= 1.0
     self.vector_flops = cfg['vector_tflops'] * 1e12
     self.vector_flop_eff = cfg['vector_flop_eff']
+    assert 0 < self.vector_flop_eff <= 1.0
 
     self.mem_tier1_bw = cfg['mem_tier1_bw'] * 1e9
-    self.mem_tier1_cap = cfg['mem_tier1_cap'] * 1e9
+    self.mem_tier1_cap = cfg['mem_tier1_cap'] * 1024**3
     self.mem_tier1_eff = cfg['mem_tier1_eff']
+    assert 0 < self.mem_tier1_eff <= 1.0
 
     self.mem_tier2_bw = cfg['mem_tier2_bw'] * 1e9
-    self.mem_tier2_cap = cfg['mem_tier2_cap'] * 1e9
+    self.mem_tier2_cap = cfg['mem_tier2_cap'] * 1024**3
     self.mem_tier2_eff = cfg['mem_tier2_eff']
+    assert 0 < self.mem_tier2_eff <= 1.0
 
     self.net_tier1 = Network(cfg['net_tier1'])
     self.net_tier2 = Network(cfg['net_tier2'])
