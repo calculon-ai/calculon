@@ -630,7 +630,8 @@ class Megatron: # stems from class (ParaGraph)
     # PP communication involves pipline_parallelism_factor of point-to-point
     # instructions between GPUs on neighboring pipeline stages during FW pass,
     # and the same amount oof communication during the BW pass
-    self.minibatch_fw_pp_size = self.exe.pipeline_interleaving
+    if self.exe.pipeline_par > 1:
+      self.minibatch_fw_pp_size = self.exe.pipeline_interleaving
     if self.exe.p2p_rs_ag:
       self.minibatch_fw_pp_size *= \
         self.bytes_per_element * self.seq_par_activation_size
@@ -713,22 +714,25 @@ class Megatron: # stems from class (ParaGraph)
       self.minibatch_fw_pp_time + self.minibatch_bw_pp_time)
 
     # Determines how long it takes to perform the DP per layer
-    if self.exe.optimizer_sharding:
-      # When performing optimizer sharding, the communication time is a
-      # reduce-scatter plus an all-gather.
-      # TODO(misaev): is the AG the same size as RS?
-      self.proc_dp_comm_size = self.block_weight_space * 2
-      layer_dp_effective_time = \
-        self.sys.network_time(self.dp_net_tier, 'reduce_scatter',
-                              self.block_weight_space) + \
-        self.sys.network_time(self.dp_net_tier, 'all_gather',
-                              self.block_weight_space)
+    if self.exe.data_par > 1:
+      if self.exe.optimizer_sharding:
+        # When performing optimizer sharding, the communication time is a
+        # reduce-scatter plus an all-gather.
+        # TODO(misaev): is the AG the same size as RS?
+        self.proc_dp_comm_size = self.block_weight_space * 2
+        layer_dp_effective_time = \
+          self.sys.network_time(self.dp_net_tier, 'reduce_scatter',
+                                self.block_weight_space) + \
+          self.sys.network_time(self.dp_net_tier, 'all_gather',
+                                self.block_weight_space)
+      else:
+        # When not performing optimizer sharding, the communication time is a
+        # single all-reduce.
+        self.proc_dp_comm_size = self.block_weight_space
+        layer_dp_effective_time = self.sys.network_time(
+          self.dp_net_tier, 'all_reduce', self.proc_dp_comm_size)
     else:
-      # When not performing optimizer sharding, the communication time is a
-      # single all-reduce.
-      self.proc_dp_comm_size = self.block_weight_space
-      layer_dp_effective_time = self.sys.network_time(
-        self.dp_net_tier, 'all_reduce', self.proc_dp_comm_size)
+      layer_dp_effective_time = 0
 
     # DP overlap happens if DP time for a previous layer(s) is lower than
     # minibatch BW pass time for next pack of consequtive layers
