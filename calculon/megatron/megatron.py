@@ -770,7 +770,7 @@ class Megatron: # stems from class (ParaGraph)
         # reduce-scatter plus an all-gather.
         # TODO(misaev): is the AG the same size as RS?
         self.proc_dp_comm_size = self.block_weight_space * 2
-        layer_dp_effective_time = \
+        layer_dp_total_time = \
           self.sys.network_time(self.dp_net_tier, 'reduce_scatter',
                                 self.block_weight_space) + \
           self.sys.network_time(self.dp_net_tier, 'all_gather',
@@ -779,13 +779,16 @@ class Megatron: # stems from class (ParaGraph)
         # When not performing optimizer sharding, the communication time is a
         # single all-reduce.
         self.proc_dp_comm_size = self.block_weight_space
-        layer_dp_effective_time = self.sys.network_time(
+        layer_dp_total_time = self.sys.network_time(
           self.dp_net_tier, 'all_reduce', self.proc_dp_comm_size)
     else:
-      layer_dp_effective_time = 0
+      layer_dp_total_time = 0
+    self.log.debug('DP comm size: %s', human_format(self.proc_dp_comm_size,
+                                                    'bytes'))
+    self.log.debug('DP layer total comm time: %.3e', layer_dp_total_time)
 
     # DP overlap happens if DP time for a previous layer(s) is lower than
-    # minibatch BW pass time for next pack of consequtive layers
+    # minibatch BW pass time for next pack of consecutive layers
     # In case of no interleaving, we move a single minibatch through each layer
     # and need to overlap DP during a single layer single minibatch time
     # In case of full interleaving, we propagate p minibatches through each
@@ -797,16 +800,15 @@ class Megatron: # stems from class (ParaGraph)
     # For simplicity we count only bandwidth-optimal case
     if self.exe.data_par_overlap:
       exposed_time = (self.exe.pipeline_interleaving - 1) * max(
-        0, layer_dp_effective_time - (self.minibatch_bw_flops_time + \
+        0, layer_dp_total_time - (self.minibatch_bw_flops_time + \
           self.minibatch_bw_mem_time) * self.exe.pipeline_par * \
           self.layers_per_proc / self.exe.pipeline_interleaving)
-      self.proc_dp_comm_time = layer_dp_effective_time + exposed_time
+      self.log.debug("%s %.3e", 'DP exposed comm time:', exposed_time)
+      self.proc_dp_comm_time = layer_dp_total_time + exposed_time
     else:
-      self.proc_dp_comm_time = self.layers_per_proc * layer_dp_effective_time
-    self.log.debug("%s %s", 'DP comm size:',
-      human_format(self.proc_dp_comm_size, 'bytes'))
-    self.log.debug("%s %.3e", 'DP comm time:', layer_dp_effective_time)
-    self.log.debug("%s %.3e", 'DP exposed comm time:', exposed_time)
+      self.proc_dp_comm_time = self.layers_per_proc * layer_dp_total_time
+    self.log.debug('DP comm time: %.3e', self.proc_dp_comm_time)
+
 
     # memory capacity stats
     self.proc_weight_space = self.block_weight_space * self.layers_per_proc
@@ -1017,7 +1019,7 @@ class Megatron: # stems from class (ParaGraph)
       tier1 += self.get_proc_act_space()
     tier1 += self.get_proc_act_checkpoint_size()
     if self.exe.optimizer_offload:
-      # We keep one set of non-sharded weight grads after compute before 
+      # We keep one set of non-sharded weight grads after compute before
       # reduction, and one sharded set for offloading
       tier1 += self.block_weight_grad_space_no_sharding + \
         self.block_weight_grad_space
@@ -1095,17 +1097,17 @@ class Megatron: # stems from class (ParaGraph)
       f"Act grad: {human_format(self.get_proc_act_grad_space(), 'bytes')};\n" \
       f"Weight grad: {human_format(self.get_proc_weight_grad_space(), 'bytes')};\n" \
       f"Optim space: {human_format(self.get_proc_optimizer_space(), 'bytes')};\n" \
-      f"Batch FW time: {self.get_proc_fw_time():.2f};\n" \
-      f"Batch BW time: {self.get_proc_bw_time():.2f};\n" \
-      f"Batch FW offload time: {self.get_proc_fw_offload_overhead():.2f};\n" \
-      f"Batch BW offload time: {self.get_proc_bw_offload_overhead():.2f};\n" \
-      f"Batch recompute time: {self.get_proc_recompute_time():.2f};\n" \
-      f"Batch recomm time: {self.get_proc_recomm_time():.2f};\n" \
-      f"Batch bubble time: {self.get_proc_bubble_time():.2f};\n" \
-      f"Batch TP comm time: {self.get_proc_tp_comm_time():.2f};\n" \
-      f"Batch PP comm time: {self.get_proc_pp_comm_time():.2f};\n" \
-      f"Batch DP comm time: {self.get_proc_dp_comm_time():.2f};\n" \
-      f"Batch total time: {self.get_proc_total_time():.2f};\n" \
+      f"Batch FW time: {self.get_proc_fw_time():.4f};\n" \
+      f"Batch BW time: {self.get_proc_bw_time():.4f};\n" \
+      f"Batch FW offload time: {self.get_proc_fw_offload_overhead():.4f};\n" \
+      f"Batch BW offload time: {self.get_proc_bw_offload_overhead():.4f};\n" \
+      f"Batch recompute time: {self.get_proc_recompute_time():.4f};\n" \
+      f"Batch recomm time: {self.get_proc_recomm_time():.4f};\n" \
+      f"Batch bubble time: {self.get_proc_bubble_time():.4f};\n" \
+      f"Batch TP comm time: {self.get_proc_tp_comm_time():.4f};\n" \
+      f"Batch PP comm time: {self.get_proc_pp_comm_time():.4f};\n" \
+      f"Batch DP comm time: {self.get_proc_dp_comm_time():.4f};\n" \
+      f"Batch total time: {self.get_proc_total_time():.4f};\n" \
       f"Activation offload required BW: {human_format(self.get_act_offload_bw_req(), 'bandwidth')};\n" \
       f"Weight offload required BW: {human_format(self.get_weight_offload_bw_req(), 'bandwidth')};\n" \
       f"Optimizer offload required BW: {human_format(self.get_optim_offload_bw_req(), 'bandwidth')};\n" \
