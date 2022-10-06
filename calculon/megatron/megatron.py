@@ -777,12 +777,13 @@ class Megatron: # stems from class (ParaGraph)
     # Optimizer split  already accounted for during layers compilation
     # We should keep non-sharded weight grad for a current layer for AllReduce
     # and one that we currently compute, so 2x total
+    # We only need a single no sharded weight grad copy for before reduction
     if self.layers_per_proc == 1:
       self.proc_weight_grad_space = self.block_weight_grad_space_no_sharding
     else:
       self.proc_weight_grad_space = \
-        2 * self.block_weight_grad_space_no_sharding + \
-        self.block_weight_grad_space * (self.layers_per_proc - 2)
+        self.block_weight_grad_space_no_sharding + \
+        self.block_weight_grad_space * (self.layers_per_proc - 1)
     self.proc_optimizer_space = \
       self.block_optimizer_space * self.layers_per_proc
 
@@ -835,16 +836,34 @@ class Megatron: # stems from class (ParaGraph)
 
   def get_proc_fw_time(self):
     fw_time = self.proc_fw_mem_time
-    fw_time += max(self.proc_fw_flops_time,
-                   self._get_fw_offload_size() / self.offload_throughput)
+    fw_time += self.proc_fw_flops_time
     return fw_time
+
+  def get_proc_fw_offload_time(self):
+    return self._get_fw_offload_size() / self.offload_throughput
+
+  def get_proc_fw_offload_overhead(self):
+    time = max(self.proc_fw_flops_time, self.get_proc_fw_offload_time())
+    return time - self.proc_fw_flops_time
 
   def get_proc_bw_time(self):
     if self.exe.training:
       bw_time = self.proc_bw_mem_time
-      bw_time += max(self.proc_bw_flops_time,
-                    self._get_bw_offload_size() / self.offload_throughput)
+      bw_time += self.proc_bw_flops_time
       return bw_time
+    else:
+      return 0
+
+  def get_proc_bw_offload_time(self):
+    if self.exe.training:
+      return self._get_bw_offload_size() / self.offload_throughput
+    else:
+      return 0
+
+  def get_proc_bw_offload_overhead(self):
+    if self.exe.training:
+      time = max(self.proc_bw_flops_time, self.get_proc_bw_offload_time())
+      return time - self.proc_bw_flops_time
     else:
       return 0
 
@@ -869,6 +888,8 @@ class Megatron: # stems from class (ParaGraph)
   def get_proc_total_time(self):
     time = self.get_proc_fw_time()
     time += self.get_proc_bw_time()
+    time += self.get_proc_fw_offload_overhead()
+    time += self.get_proc_bw_offload_overhead()
     time += self.get_proc_recompute_time()
     time += self.get_proc_recomm_time()
     time += self.get_proc_bubble_time()
@@ -938,10 +959,13 @@ class Megatron: # stems from class (ParaGraph)
       tier1 += self.get_proc_act_space()
     tier1 += self.get_proc_act_checkpoint_size()
     if self.exe.optimizer_offload:
-      tier1 += self.block_weight_grad_space_no_sharding * 2
+      # We keep one set of non-sharded weight grads after compute before 
+      # reduction, and one sharded set for offloading
+      tier1 += self.block_weight_grad_space_no_sharding + \
+        self.block_weight_grad_space
+      tier2 += self.block_weight_grad_space * self.layers_per_proc
       tier1 += self.block_optimizer_space * 2
-      tier2 += self.get_proc_weight_grad_space() + \
-        self.proc_optimizer_space
+      tier2 += self.proc_optimizer_space
     else:
       tier1 += self.get_proc_weight_grad_space() + \
         self.get_proc_optimizer_space()
