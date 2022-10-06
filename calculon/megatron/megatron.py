@@ -221,6 +221,54 @@ class Megatron: # stems from class (ParaGraph)
   def get_json(self):
     assert self._executed
     j = {}
+    j['vector_throughput'] = self.vector_throughput
+    j['matrix_throughput'] = self.matrix_throughput
+    j['mem_throughput'] = self.mem_throughput
+    j['offload_throughput'] = self.offload_throughput
+    j['tp_net_tier'] = self.tp_net_tier
+    j['dp_net_tier'] = self.dp_net_tier
+    j['pp_net_tier'] = self.pp_net_tier
+
+    j['minibatch_fw_flops'] = self.minibatch_fw_flops
+    j['minibatch_fw_flops_time'] = self.minibatch_fw_flops_time
+    j['minibatch_fw_mem_accessed'] = self.minibatch_fw_mem_accessed
+    j['minibatch_fw_mem_time'] = self.minibatch_fw_mem_time
+    j['minibatch_bw_flops'] = self.minibatch_bw_flops
+    j['minibatch_bw_flops_time'] = self.minibatch_bw_flops_time
+    j['minibatch_bw_mem_accessed'] = self.minibatch_bw_mem_accessed
+    j['minibatch_bw_mem_time'] = self.minibatch_bw_mem_time
+    j['minibatch_recompute_mem_saving'] = self.minibatch_recompute_mem_saving
+    j['minibatch_recompute_time'] = self.minibatch_recompute_time
+    j['minibatch_fw_tp_size'] = self.minibatch_fw_tp_size
+    j['minibatch_fw_tp_time'] = self.minibatch_fw_tp_time
+    j['minibatch_recomm_tp_time'] = self.minibatch_recomm_tp_time
+    j['minibatch_bw_tp_size'] = self.minibatch_bw_tp_size
+    j['minibatch_bw_tp_time'] = self.minibatch_bw_tp_time
+    j['minibatch_fw_pp_size'] = self.minibatch_fw_pp_size
+    j['minibatch_fw_pp_time'] = self.minibatch_fw_pp_time
+    j['minibatch_bw_pp_size'] = self.minibatch_bw_pp_size
+    j['minibatch_bw_pp_time'] = self.minibatch_bw_pp_time
+
+    j['block_weight_space'] = self.block_weight_space
+    j['block_act_space'] = self.block_act_space
+    j['block_act_checkpoint_size'] = self.block_act_checkpoint_size
+    j['block_weight_grad_space'] = self.block_weight_grad_space
+    j['block_weight_grad_space_no_sharding'] = self.block_weight_grad_space_no_sharding
+    j['block_act_grad_space'] = self.block_act_grad_space
+    j['block_optimizer_space'] = self.block_optimizer_space
+    j['block_fw_flops'] = self.block_fw_flops
+    j['block_fw_flops_time'] = self.block_fw_flops_time
+    j['block_fw_mem_accessed'] = self.block_fw_mem_accessed
+    j['block_fw_mem_time'] = self.block_fw_mem_time
+    j['block_bw_flops'] = self.block_bw_flops
+    j['block_bw_flops_time'] = self.block_bw_flops_time
+    j['block_bw_mem_accessed'] = self.block_bw_mem_accessed
+    j['block_bw_mem_time'] = self.block_bw_mem_time
+    j['block_recompute_time'] = self.block_recompute_time
+    j['block_recomm_time'] = self.block_recomm_time
+    j['block_tp_comm_size'] = self.block_tp_comm_size
+    j['block_tp_comm_time'] = self.block_tp_comm_time
+
     j['proc_weight_space'] = self.get_proc_weight_space()
     j['proc_act_space'] = self.get_proc_act_space()
     j['proc_act_checkpoint_size'] = self.get_proc_act_checkpoint_size()
@@ -650,16 +698,16 @@ class Megatron: # stems from class (ParaGraph)
 
     self.log.debug("%s %s", 'TP comm FW size:',
       human_format(self.minibatch_fw_tp_size, 'bytes'))
-    self.log.debug("%s %s", 'TP comm FW time:', self.minibatch_fw_tp_time)
+    self.log.debug("%s %.3e", 'TP comm FW time:', self.minibatch_fw_tp_time)
     self.log.debug("%s %s", 'TP comm BW size:',
       human_format(self.minibatch_bw_tp_size, 'bytes'))
-    self.log.debug("%s %s", 'TP comm BW time:', self.minibatch_bw_tp_time)
+    self.log.debug("%s %.3e", 'TP comm BW time:', self.minibatch_bw_tp_time)
     self.log.debug("%s %s", 'PP comm FW size:',
       human_format(self.minibatch_fw_pp_size, 'bytes'))
-    self.log.debug("%s %s", 'PP comm FW time:', self.minibatch_fw_pp_time)
+    self.log.debug("%s %.3e", 'PP comm FW time:', self.minibatch_fw_pp_time)
     self.log.debug("%s %s", 'PP comm BW size:',
       human_format(self.minibatch_bw_pp_size, 'bytes'))
-    self.log.debug("%s %s", 'PP comm BW time:', self.minibatch_bw_pp_time)
+    self.log.debug("%s %.3e", 'PP comm BW time:', self.minibatch_bw_pp_time)
 
   def _compute_batch_stats(self):
     # compute/memory stats
@@ -755,6 +803,10 @@ class Megatron: # stems from class (ParaGraph)
       self.proc_dp_comm_time = layer_dp_effective_time + exposed_time
     else:
       self.proc_dp_comm_time = self.layers_per_proc * layer_dp_effective_time
+    self.log.debug("%s %s", 'DP comm size:',
+      human_format(self.proc_dp_comm_size, 'bytes'))
+    self.log.debug("%s %.3e", 'DP comm time:', layer_dp_effective_time)
+    self.log.debug("%s %.3e", 'DP exposed comm time:', exposed_time)
 
     # memory capacity stats
     self.proc_weight_space = self.block_weight_space * self.layers_per_proc
@@ -1064,4 +1116,10 @@ class Megatron: # stems from class (ParaGraph)
       f"Compute efficiency: {self.get_compute_efficiency()*100:.2f}%;\n" \
       f"System efficiency: {self.get_system_efficiency()*100:.2f}%;\n" \
       f"Total efficiency: {self.get_total_efficiency()*100:.2f}%;\n"
+    for k, v in self.get_json().items():
+      if k == 'layers':
+        for l in v:
+          self.log.debug('DEBUG layer %s : %s', l['name'], l)
+      else:
+        self.log.debug('DEBUG: %s : %s', k, v)
     self.log.info(stats)
