@@ -71,6 +71,8 @@ class Megatron: # stems from class (ParaGraph)
       self.data_par_overlap = cfg['data_par_overlap']
       self.weight_offload = cfg['weight_offload']
       self.activations_offload = cfg['activations_offload']
+      if self.activation_recompute == 'full':
+        assert not self.activations_offload
       self.optimizer_offload = cfg['optimizer_offload']
       self.training = cfg['training']
       if self.activations_offload:
