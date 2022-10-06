@@ -23,6 +23,7 @@ class System:
   def __init__(self, cfg):
     # bw = GB/s
     # cap = GB
+    self.cfg = cfg
     self.matrix_flops = cfg['matrix_tflops'] * 1e12
     self.matrix_flop_eff = cfg['matrix_flop_eff']
     self.vector_flops = cfg['vector_tflops'] * 1e12

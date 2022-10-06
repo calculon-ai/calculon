@@ -75,7 +75,7 @@ class Layer:
       'optimizer': self.get_optimizer()
     }
 
-  def display_stats(self):
+  def get_stats_str(self):
     stats = "Operation {0}:\n{1} FW flops, {2} FW bytes accessed,".format(
       self.name,
       human_format(self.get_fw_flops(), 'flops'),
@@ -91,7 +91,7 @@ class Layer:
       human_format(self.get_weight_grad(), 'bytes'),
       human_format(self.get_activation_grad(), 'bytes'),
       human_format(self.get_optimizer(), 'bytes'))
-    print(stats)
+    return stats
 
   def set_bytes_per_element(self, bytes_per_element):
     self.bytes_per_element = bytes_per_element

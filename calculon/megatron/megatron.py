@@ -40,6 +40,7 @@ class Megatron: # stems from class (ParaGraph)
   class Application:
     """Specifies the application configuration."""
     def __init__(self, cfg):
+      self.cfg = cfg
       self.name = cfg['name']
       self.hidden = cfg['hidden']
       self.seq_size = cfg['seq_size']
@@ -49,6 +50,7 @@ class Megatron: # stems from class (ParaGraph)
   class Execution:
     """Specifies the execution configuration."""
     def __init__(self, cfg):
+      self.cfg = cfg
       self.num_procs = cfg['num_procs']
       self.tensor_par = cfg['tensor_par']
       self.pipeline_par = cfg['pipeline_par']
@@ -1025,13 +1027,16 @@ class Megatron: # stems from class (ParaGraph)
     return self.exe.num_procs * self.get_proc_optimizer_space()
 
   def display_stats(self):
-    stats = "" \
+    stats = ""
+    for layer in self.megatron_block:
+      stats += layer.get_stats_str()
+    stats += "" \
       f"Model {self.app.name}: {self.app.num_layers} layers, " \
       f"hidden={self.app.hidden}, num attn heads: {self.app.attn_heads}\n" \
       f"Run on {self.exe.num_procs} processors with TP={self.exe.tensor_par}, PP={self.exe.pipeline_par}, " \
       f"DP={self.exe.data_par}, {self.layers_per_proc} layers per processor\n" \
-      f"Execution: {self.exe};\n" \
-      f"System: {self.sys};\n" \
+      f"Execution: {self.exe.cfg};\n" \
+      f"System: {self.sys.cfg};\n" \
       f"Weights: {human_format(self.get_proc_weight_space(), 'bytes')};\n" \
       f"Act: {human_format(self.get_proc_act_space(), 'bytes')};\n" \
       f"Act CP: {human_format(self.get_proc_act_checkpoint_size(), 'bytes')};\n" \
@@ -1040,6 +1045,8 @@ class Megatron: # stems from class (ParaGraph)
       f"Optim space: {human_format(self.get_proc_optimizer_space(), 'bytes')};\n" \
       f"Batch FW time: {self.get_proc_fw_time():.2f};\n" \
       f"Batch BW time: {self.get_proc_bw_time():.2f};\n" \
+      f"Batch FW offload time: {self.get_proc_fw_offload_overhead():.2f};\n" \
+      f"Batch BW offload time: {self.get_proc_bw_offload_overhead():.2f};\n" \
       f"Batch recompute time: {self.get_proc_recompute_time():.2f};\n" \
       f"Batch recomm time: {self.get_proc_recomm_time():.2f};\n" \
       f"Batch bubble time: {self.get_proc_bubble_time():.2f};\n" \
@@ -1053,10 +1060,8 @@ class Megatron: # stems from class (ParaGraph)
       f"Total offload required BW: {human_format(self.get_offload_mem_bw_req(), 'bandwidth')};\n" \
       f"Mem tier1 capacity requirement: {human_format(self.get_proc_mem_tier1_cap_req(), 'bytes')};\n" \
       f"Mem tier2 capacity requirement: {human_format(self.get_proc_mem_tier2_cap_req(), 'bytes')};\n" \
-      f"Total Flops per processor: {human_format(self.get_useful_flops(), 'flops')};\n" \
+      f"Mem Tier2 BW for offload: {human_format(self.get_offload_mem_bw_req(), 'bandwidth')};\n" \
       f"Compute efficiency: {self.get_compute_efficiency()*100:.2f}%;\n" \
       f"System efficiency: {self.get_system_efficiency()*100:.2f}%;\n" \
       f"Total efficiency: {self.get_total_efficiency()*100:.2f}%;\n"
-    for layer in self.megatron_block:
-      layer.display_stats()
     self.log.info(stats)
