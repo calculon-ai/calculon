@@ -188,7 +188,6 @@ class Megatron: # stems from class (ParaGraph)
 
     self._block_weight_space = 0
     self._block_act_space = 0
-    # TODO(misaev): check how CP size is computed and why this is not used
     self._block_act_checkpoint_size = 0
     self._block_weight_grad_space = 0
     self._block_weight_grad_space_no_sharding = 0
@@ -590,6 +589,7 @@ class Megatron: # stems from class (ParaGraph)
       # Accumulate space requirements per block
       self._block_weight_space += layer.get_weight()
       self._block_act_space += layer.get_activation()
+      self._block_act_checkpoint_size = self.activation_size
       self._block_weight_grad_space += layer.get_weight_grad()
       self._block_weight_grad_space_no_sharding += layer.get_weight_grad(
         sharded=False)
@@ -947,6 +947,8 @@ class Megatron: # stems from class (ParaGraph)
       else:
         assert self.exe.pipeline_interleaving == 1
         self._act_space *= self.exe.pipeline_par
+    self._act_checkpoint_size = self._blocks_per_proc * \
+      self._block_act_checkpoint_size
     # Only need activation grads for a single block
     self._act_grad_space = self._block_act_grad_space
 
@@ -1124,10 +1126,7 @@ class Megatron: # stems from class (ParaGraph)
   def get_act_checkpoint_size(self):
     if self.exe.activation_recompute != 'full':
       return 0
-    # TODO(misaev): WRONG calculation, should be a single activation per block
-    # But in this case act_space should be equal to a single block act_space
-    return self._bytes_per_element * self._block_act_space * \
-      self._blocks_per_proc
+    return self._act_checkpoint_size
 
   def get_weight_grad_space(self):
     return self._weight_grad_space
