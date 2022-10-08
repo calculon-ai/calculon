@@ -362,6 +362,7 @@ class Fork(Layer):
     return self.activation_space * self.bytes_per_element * (self.num_users + 1)
 
 
+# TODO(misaev): introduce flop=bytes=0 for comm_size==1
 class TPComm(Layer):
   def __init__(self, name, act_size, comm_size,
                split_comm=False, conjugate=False,

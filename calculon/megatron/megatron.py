@@ -174,7 +174,8 @@ class Megatron: # stems from class (ParaGraph)
 
     self._block_weight_space = 0
     self._block_act_space = 0
-    self._block_act_checkpoint_size = 0  # TODO(nicmcd): never used
+    # TODO(misaev): check how CP size is computed and why this is not used
+    self._block_act_checkpoint_size = 0
     self._block_weight_grad_space = 0
     self._block_weight_grad_space_no_sharding = 0
     self._block_act_grad_space = 0
@@ -289,6 +290,7 @@ class Megatron: # stems from class (ParaGraph)
       "AttnBlock_F",
       self.activation_size,
       self.exe.tensor_par,
+      # TODO(misaev): make separate edge blocks condition(???)
       # TODO(nicmcd): I DON'T THINK THIS IS STILL RIGHT, DOES p2p_rs_ag MODE ALSO SPLIT?
       # split_comm=(self.exe.sequence_par or self.exe.p2p_rs_ag),
       split_comm=self.exe._sequence_par,
@@ -347,6 +349,7 @@ class Megatron: # stems from class (ParaGraph)
       "AttnBlock_G",
       self.activation_size,
       self.exe.tensor_par,
+      # TODO(misaev): make separate edge blocks condition(???)
       # TODO(nicmcd): I DON'T THINK THIS IS STILL RIGHT, DOES p2p_rs_ag MODE ALSO SPLIT?
       #split_comm=(self.exe.sequence_par or self.exe.p2p_rs_ag),
       split_comm=self.exe._sequence_par,
@@ -379,6 +382,7 @@ class Megatron: # stems from class (ParaGraph)
       "MlpBlock_F",
       self.activation_size,
       self.exe.tensor_par,
+      # TODO(misaev): make separate edge blocks condition(???)
       # TODO(nicmcd): I DON'T THINK THIS IS STILL RIGHT, DOES p2p_rs_ag MODE ALSO SPLIT?
       #split_comm=(self.exe.sequence_par or self.exe.p2p_rs_ag),
       split_comm=self.exe._sequence_par,
@@ -404,6 +408,7 @@ class Megatron: # stems from class (ParaGraph)
       "MlpBlock_G",
       self.activation_size,
       self.exe.tensor_par,
+      # TODO(misaev): make separate edge blocks condition(???)
       # TODO(nicmcd): I DON'T THINK THIS IS STILL RIGHT, DOES p2p_rs_ag MODE ALSO SPLIT?
       #split_comm=(self.exe.sequence_par or self.exe.p2p_rs_ag),
       split_comm=self.exe._sequence_par,
@@ -430,7 +435,7 @@ class Megatron: # stems from class (ParaGraph)
 
     self._num_minibatches = self.exe.batch_size / self.exe.data_par / \
       self.exe.minibatch_size
-    # TODO(misaev): this causes bubbles inside the chunk they we haven't
+    # TODO(misaev): this causes bubbles inside the chunk that we haven't
     # accounted for.
     assert self._num_minibatches >= self.exe.pipeline_par, \
       "Config not yet supported, please make num_minibatches >= pipeline_par"
@@ -524,12 +529,11 @@ class Megatron: # stems from class (ParaGraph)
     This function computes the statistics for one minibatch on a single block.
     This only computes flops, flop time, and communication sizes. Since
     tensor and pipeline parallelism cause different communication operations to
-    occur at the full batch level, the communication times are computed.
+    occur at the full batch level, the communication times are computed later.
     """
     for layer in self._megatron_block:
       # Determines which throughput will be used for this layer
-      # TODO(nicmcd): are there any more layers needed here?
-      if isinstance(layer, Linear):
+      if isinstance(layer, Linear) or isinstance(layer, BatchMatMul):
         flops_throughput = self.matrix_throughput
       else:
         flops_throughput = self.vector_throughput
@@ -625,15 +629,16 @@ class Megatron: # stems from class (ParaGraph)
         human_format(self._block_optimizer_space, 'bytes'))
 
     # Sets the TP communication operation size
+    # we multiply by 2 as there are two F/G comm instructions in each block
     if self.exe.tensor_par > 1:
-      self._block_fw_tp_size = self.activation_size * \
+      self._block_fw_tp_size = 2 * self.activation_size * \
         self._bytes_per_element
     else:
       self._block_fw_tp_size = 0
 
     # Sets the PP communication operation size
     if self.exe.pipeline_par > 1:
-      if self.exe._pipeline_par_rs_ag:  # TODO(nicmcd): CHECK THIS LOGIC
+      if self.exe._pipeline_par_rs_ag:
         self._block_fw_pp_size = self.seq_par_activation_size * \
           self._bytes_per_element
       else:
@@ -686,9 +691,11 @@ class Megatron: # stems from class (ParaGraph)
 
     # Recommunication is caused by activation recomputation in
     # "full" mode. It is always 2 AllReduce operations
-    # TODO(nicmcd): check this with misaev
-    if self.exe.tensor_par > 1 and self.activation_recompute == 'full':
-      block_recomm_time = 2 * self.sys.network_time(
+    # We consider full activation recomputation to start with the full
+    # activation checkpoint  (not distributed across TP nodes)
+    # TODO(misaev): think if we want to introduce split_act_cp optimization
+    if self.exe.tensor_par > 1 and self.exe.activation_recompute == 'full':
+      block_recomm_time = self.sys.network_time(
         self._tp_net_tier, 'all_reduce', self._block_recomm_size)
     else:
       block_recomm_time = 0
@@ -699,6 +706,8 @@ class Megatron: # stems from class (ParaGraph)
     # Recommunication time is the same in both base and edge blocks.
     blocks_per_chunk = self._blocks_per_proc / self.exe.pipeline_interleaving
     chunks_per_proc = self._blocks_per_proc / blocks_per_chunk
+    assert chunks_per_proc == self.exe.pipeline_interleaving, \
+      "Number of chunks should be equal to pipeline_interleaving"
     baseblocks_per_chunk = blocks_per_chunk - 1
     edgeblocks_per_chunk = 1
 
@@ -711,7 +720,7 @@ class Megatron: # stems from class (ParaGraph)
         self.sys.network_time(self._tp_net_tier, 'all_gather',
                               self._block_fw_tp_size))
     else:
-      baseblock_fw_tp_time = 2 * (
+      baseblock_fw_tp_time = (
         self.sys.network_time(self._tp_net_tier, 'all_reduce',
                               self._block_fw_tp_size))
     if self.exe._pipeline_par_rs_ag:
@@ -721,10 +730,11 @@ class Megatron: # stems from class (ParaGraph)
         self.sys.network_time(self._tp_net_tier, 'all_gather',
                               self._block_fw_tp_size))
     else:
-      edgeblock_fw_tp_time = 2 * (
+      edgeblock_fw_tp_time = (
         self.sys.network_time(self._tp_net_tier, 'all_reduce',
                               self._block_fw_tp_size))
     if self.exe.training:
+      baseblock_bw_tp_time = edgeblock_fw_tp_time
       if self.exe._sequence_par:
         baseblock_bw_tp_time = (
           self.sys.network_time(self._tp_net_tier, 'reduce_scatter',
@@ -732,7 +742,7 @@ class Megatron: # stems from class (ParaGraph)
           self.sys.network_time(self._tp_net_tier, 'all_gather',
                                 self._block_bw_tp_size))
       else:
-        baseblock_bw_tp_time = 2 * (
+        baseblock_bw_tp_time = (
           self.sys.network_time(self._tp_net_tier, 'all_reduce',
                                 self._block_bw_tp_size))
       if self.exe._pipeline_par_rs_ag:
@@ -742,9 +752,12 @@ class Megatron: # stems from class (ParaGraph)
           self.sys.network_time(self._tp_net_tier, 'all_gather',
                                 self._block_bw_tp_size))
       else:
-        edgeblock_bw_tp_time = 2 * (
+        edgeblock_bw_tp_time = (
           self.sys.network_time(self._tp_net_tier, 'all_reduce',
                                 self._block_bw_tp_size))
+        assert edgeblock_bw_tp_time == edgeblock_fw_tp_time and \
+          baseblock_bw_tp_time == baseblock_fw_tp_time, \
+        "We expect TP communication time is the same during FW and BW passes"
     else:
       baseblock_bw_tp_time = 0
       edgeblock_bw_tp_time = 0
@@ -766,7 +779,7 @@ class Megatron: # stems from class (ParaGraph)
       self._pp_net_tier, 'p2p', self._block_bw_pp_size)
 
     # Determines number of times PP causes pipeline p2p communications per
-    # chunk during the forward and backward pass
+    # chunk during the forward and backward pass (equal to chunks pper proc)
     if self.exe.pipeline_par > 1:
       num_fw_pp_p2ps = self.exe.pipeline_interleaving
       if self.exe.training:
@@ -794,15 +807,14 @@ class Megatron: # stems from class (ParaGraph)
     baseblock_fw_time = (self._block_fw_flops_time + self._block_fw_mem_time +
                          baseblock_fw_tp_time)
     edgeblock_fw_time = (self._block_fw_flops_time + self._block_fw_mem_time +
-                         edgeblock_fw_tp_time)
+                         edgeblock_fw_tp_time + chunk_fw_pp_time)
     baseblock_bw_time = (self._block_recompute_time + block_recomm_time +
                          self._block_bw_flops_time + self._block_bw_mem_time +
                          baseblock_bw_tp_time)
     edgeblock_bw_time = (self._block_recompute_time + block_recomm_time +
                          self._block_bw_flops_time + self._block_bw_mem_time +
-                         edgeblock_bw_tp_time)
-    # TODO(misaev): I know there is a shorter way of computing this but BW only
-    # time is needed later so don't combine this :) DELETE ME
+                         edgeblock_bw_tp_time + chunk_bw_pp_time)
+
     chunk_fw_time = (
       (baseblocks_per_chunk * baseblock_fw_time) +
       (edgeblocks_per_chunk * edgeblock_fw_time) +
@@ -833,6 +845,8 @@ class Megatron: # stems from class (ParaGraph)
                                               self._block_weight_space)
     else:
       block_dp_time = 0
+    self.log.debug('DP block comm size: %s', human_format(
+      self._block_weight_space, 'bytes'))
     self.log.debug('DP block comm time (no overlap): %.3e', block_dp_time)
 
     # DP overlap happens if DP time for a previous block(s) is lower than
@@ -851,36 +865,28 @@ class Megatron: # stems from class (ParaGraph)
         # we can evenly overlap all the chunks except for the last one
         # in the ast chunk we can overlap only all blocks except for the last one
         num_overlappable_chunks = self.exe.pipeline_interleaving - 1
-        last_chunks_overlap_size = blocks_per_chunk - 1
+        last_chunk_overlap_size = blocks_per_chunk - 1
         # Overlappable chunks have overlap size equal to
         # blocks_per_chunk * num_minibatches
         # In case of 1F1B schedule, num_minibatches == pipeline_par
-
-        chunk_dp_time = blocks_per_chunk * block_dp_time
-
-        block_bw_time = (
-          self._block_recompute_time +
-          self._block_recomm_time +
-          self._block_bw_flops_time +
-          self._block_bw_mem_time +
-          self._block_bw_tp_time +
-          self._block_bw_pp_time) <- NOPE
-        # TODO(nicmcd):
-
         overlappable_chunks_exposed_time = num_overlappable_chunks * \
-          max(0, blocks_per_chunk * (
-            block_dp_time - self.exe.pipeline_par * block_bw_time))
-
-        last_chunk_exposed_time = max(0, last_chunks_overlap_size * (
-          block_dp_time - block_bw_time))
-
+          max(0, blocks_per_chunk * block_dp_time - \
+            self.exe.pipeline_par * chunk_bw_time)
+        # in the last chunk, we overlap DP comm over first edge block and all
+        # middle blocks, so we substract the time of the last edge block
+        last_chunk_bw_time = chunk_bw_time - chunk_bw_pp_time - (
+          baseblock_bw_time + edgeblock_bw_time) / 2
+        last_chunk_exposed_time = max(0, (
+          last_chunk_overlap_size * block_dp_time - last_chunk_bw_time))
         exposed_time = overlappable_chunks_exposed_time + last_chunk_exposed_time
         self._dp_comm_time = block_dp_time + exposed_time
       else:
         self._dp_comm_time = self._blocks_per_proc * block_dp_time
     else:
       self._dp_comm_time = 0
-    self.log.debug('DP comm time: %.3e', self._dp_comm_time)
+    self.log.debug('DP comm time exposed: %.3e', self._dp_comm_time)
+    self.log.debug('DP comm time on the link: %.3e',
+     self._blocks_per_proc * block_dp_time)
 
     # memory capacity stats
     self._weight_space = self._block_weight_space * self._blocks_per_proc
@@ -1065,7 +1071,8 @@ class Megatron: # stems from class (ParaGraph)
   def get_act_checkpoint_size(self):
     if self.exe.activation_recompute != 'full':
       return 0
-    # TODO(nicmcd): why not self._act_space?
+    # TODO(misaev): WRONG calculation, should be a single activation per block
+    # But in this case act_space should be equal to a single block act_space
     return self._bytes_per_element * self._block_act_space * \
       self._blocks_per_proc
 
