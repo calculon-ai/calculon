@@ -142,6 +142,14 @@ class Megatron: # stems from class (ParaGraph)
 
     # Holds the layers in a single block
     self._megatron_block = []
+    # A chunk is a set of blocks for minibatch before passing to the next
+    # processor in the pipeline. Each chunk is modeled as a base
+    # block that is repeated N-1 times and followed by 1 edge block.
+    # Recommunication time is the same in both base and edge blocks.
+    self._blocks_per_chunk = 0
+    self._chunks_per_proc = 0
+    self._baseblocks_per_chunk = 0
+    self._edgeblocks_per_chunk = 0
 
     # HW parameters to populate during run
     # TODO(nicmcd): this should be calculated on the fly by the system class
@@ -172,6 +180,11 @@ class Megatron: # stems from class (ParaGraph)
     self._block_recomm_size = 0
     self._block_fw_pp_size = 0
     self._block_bw_pp_size = 0
+    self._block_dp_time = 0
+    self._baseblock_fw_time = 0
+    self._edgeblock_fw_time = 0
+    self._baseblock_bw_time = 0
+    self._edgeblock_bw_time = 0
 
     self._block_weight_space = 0
     self._block_act_space = 0
@@ -464,6 +477,18 @@ class Megatron: # stems from class (ParaGraph)
       raise self.Error('Offloading requires each processor to handle at least 3'
                        ' blocks')
 
+    # A chunk is a set of blocks for minibatch before passing to the next
+    # processor in the pipeline. Each chunk is modeled as a base
+    # block that is repeated N-1 times and followed by 1 edge block.
+    # Recommunication time is the same in both base and edge blocks.
+    self._blocks_per_chunk = \
+      self._blocks_per_proc / self.exe.pipeline_interleaving
+    self._chunks_per_proc = self._blocks_per_proc / self._blocks_per_chunk
+    assert self._chunks_per_proc == self.exe.pipeline_interleaving, \
+      "Number of chunks should be equal to pipeline_interleaving"
+    self._baseblocks_per_chunk = self._blocks_per_chunk - 1
+    self._edgeblocks_per_chunk = 1
+
     # Build model during the compilation step
     self.batch_seq = self.exe.minibatch_size * self.app.seq_size
     self.activation_size = self.batch_seq * self.app.hidden
@@ -705,17 +730,6 @@ class Megatron: # stems from class (ParaGraph)
     else:
       block_recomm_time = 0
 
-    # A chunk is a set of blocks for minibatch before passing to the next
-    # processor in the pipeline. Each chunk is modeled as a base
-    # block that is repeated N-1 times and followed by 1 edge block.
-    # Recommunication time is the same in both base and edge blocks.
-    blocks_per_chunk = self._blocks_per_proc / self.exe.pipeline_interleaving
-    chunks_per_proc = self._blocks_per_proc / blocks_per_chunk
-    assert chunks_per_proc == self.exe.pipeline_interleaving, \
-      "Number of chunks should be equal to pipeline_interleaving"
-    baseblocks_per_chunk = blocks_per_chunk - 1
-    edgeblocks_per_chunk = 1
-
     # Computes TP communication times base and edge blocks, split into FW and BW
     # NOTE: if tensor_par is 1, sizes will be 0 and times will therefore be 0
     if self.exe._sequence_par:
@@ -768,14 +782,18 @@ class Megatron: # stems from class (ParaGraph)
       edgeblock_bw_tp_time = 0
 
     # These TP numbers are for total times for all blocks in all chunks
-    tp_fw_comm_time = chunks_per_proc * (
-      (baseblocks_per_chunk * (baseblock_fw_tp_time + baseblock_fw_tp_time)) +
-      (edgeblocks_per_chunk * (edgeblock_fw_tp_time + edgeblock_fw_tp_time)))
-    tp_bw_comm_time = chunks_per_proc * (
-      (baseblocks_per_chunk * (baseblock_bw_tp_time + baseblock_bw_tp_time)) +
-      (edgeblocks_per_chunk * (edgeblock_bw_tp_time + edgeblock_bw_tp_time)))
-    tp_recomm_time = chunks_per_proc * (
-      blocks_per_chunk * block_recomm_time)
+    tp_fw_comm_time = self._chunks_per_proc * (
+      (self._baseblocks_per_chunk * (
+        baseblock_fw_tp_time + baseblock_fw_tp_time)) +
+      (self._edgeblocks_per_chunk * (
+        edgeblock_fw_tp_time + edgeblock_fw_tp_time)))
+    tp_bw_comm_time = self._chunks_per_proc * (
+      (self._baseblocks_per_chunk * (
+        baseblock_bw_tp_time + baseblock_bw_tp_time)) +
+      (self._edgeblocks_per_chunk * (
+        edgeblock_bw_tp_time + edgeblock_bw_tp_time)))
+    tp_recomm_time = self._chunks_per_proc * (
+      self._blocks_per_chunk * block_recomm_time)
 
     # Per chunk PP comm time
     chunk_fw_pp_time = self.sys.network_time(
@@ -796,8 +814,8 @@ class Megatron: # stems from class (ParaGraph)
       num_bw_pp_p2ps = 0
 
     # These PP numbers are for total times for all blocks and all minibatches
-    pp_fw_comm_time = chunks_per_proc * num_fw_pp_p2ps * chunk_fw_pp_time
-    pp_bw_comm_time = chunks_per_proc * num_bw_pp_p2ps * chunk_bw_pp_time
+    pp_fw_comm_time = self._chunks_per_proc * num_fw_pp_p2ps * chunk_fw_pp_time
+    pp_bw_comm_time = self._chunks_per_proc * num_bw_pp_p2ps * chunk_bw_pp_time
 
     # Aggregrates metrics
     self._tp_comm_time = tp_fw_comm_time + tp_bw_comm_time
@@ -809,24 +827,36 @@ class Megatron: # stems from class (ParaGraph)
     # L/gpu x minibatch_time x (p-1) x Tcycle, where cycle includes both
     # FW and BW passes, TP and PP communication for FW and BW passes
     # With full interleaving, we only need minibatch_time x (p-1) x Tcycle time
-    baseblock_fw_time = (self._block_fw_flops_time + self._block_fw_mem_time +
-                         baseblock_fw_tp_time)
-    edgeblock_fw_time = (self._block_fw_flops_time + self._block_fw_mem_time +
-                         edgeblock_fw_tp_time + chunk_fw_pp_time)
-    baseblock_bw_time = (self._block_recompute_time + block_recomm_time +
-                         self._block_bw_flops_time + self._block_bw_mem_time +
-                         baseblock_bw_tp_time)
-    edgeblock_bw_time = (self._block_recompute_time + block_recomm_time +
-                         self._block_bw_flops_time + self._block_bw_mem_time +
-                         edgeblock_bw_tp_time + chunk_bw_pp_time)
+    self._baseblock_fw_time = (
+      self._block_fw_flops_time + \
+      self._block_fw_mem_time + \
+      baseblock_fw_tp_time)
+    self._edgeblock_fw_time = (
+      self._block_fw_flops_time + \
+      self._block_fw_mem_time + \
+      edgeblock_fw_tp_time + \
+      chunk_fw_pp_time)
+    self._baseblock_bw_time = (
+      self._block_recompute_time + \
+      block_recomm_time + \
+      self._block_bw_flops_time + \
+      self._block_bw_mem_time + \
+      baseblock_bw_tp_time)
+    self._edgeblock_bw_time = (
+      self._block_recompute_time + \
+      block_recomm_time + \
+      self._block_bw_flops_time + \
+      self._block_bw_mem_time + \
+      edgeblock_bw_tp_time + \
+      chunk_bw_pp_time)
 
     chunk_fw_time = (
-      (baseblocks_per_chunk * baseblock_fw_time) +
-      (edgeblocks_per_chunk * edgeblock_fw_time) +
+      (self._baseblocks_per_chunk * self._baseblock_fw_time) +
+      (self._edgeblocks_per_chunk * self._edgeblock_fw_time) +
       chunk_fw_pp_time)
     chunk_bw_time = (
-      (baseblocks_per_chunk * baseblock_bw_time) +
-      (edgeblocks_per_chunk * edgeblock_bw_time) +
+      (self._baseblocks_per_chunk * self._baseblock_bw_time) +
+      (self._edgeblocks_per_chunk * self._edgeblock_bw_time) +
       chunk_bw_pp_time)
     chunk_time = chunk_fw_time + chunk_bw_time
     chunks_in_bubble = self.exe.pipeline_par - 1
@@ -838,7 +868,7 @@ class Megatron: # stems from class (ParaGraph)
       if self.exe.optimizer_sharding:
         # When performing optimizer sharding, the communication time is a
         # reduce-scatter plus an all-gather.
-        block_dp_time = \
+        self._block_dp_time = \
           self.sys.network_time(self._dp_net_tier, 'reduce_scatter',
                                 self._block_weight_space) + \
           self.sys.network_time(self._dp_net_tier, 'all_gather',
@@ -846,13 +876,14 @@ class Megatron: # stems from class (ParaGraph)
       else:
         # When not performing optimizer sharding, the communication time is a
         # single all-reduce.
-        block_dp_time = self.sys.network_time(self._dp_net_tier, 'all_reduce',
-                                              self._block_weight_space)
+        self._block_dp_time = self.sys.network_time(
+          self._dp_net_tier, 'all_reduce', self._block_weight_space)
     else:
-      block_dp_time = 0
+      self._block_dp_time = 0
     self.log.debug('DP block comm size: %s', human_format(
       self._block_weight_space, 'bytes'))
-    self.log.debug('DP block comm time (no overlap): %.3e', block_dp_time)
+    self.log.debug(
+      'DP block comm time (no overlap): %.3e', self._block_dp_time)
 
     # DP overlap happens if DP time for a previous block(s) is lower than
     # minibatch BW pass time for next pack of consecutive blocks
@@ -868,30 +899,31 @@ class Megatron: # stems from class (ParaGraph)
     if self.exe.data_par > 1:
       if self.exe.data_par_overlap:
         # we can evenly overlap all the chunks except for the last one
-        # in the ast chunk we can overlap only all blocks except for the last one
+        # in the ast chunk we can overlap only all blocks except for the last
         num_overlappable_chunks = self.exe.pipeline_interleaving - 1
-        last_chunk_overlap_size = blocks_per_chunk - 1
+        last_chunk_overlap_size = self._blocks_per_chunk - 1
         # Overlappable chunks have overlap size equal to
         # blocks_per_chunk * num_minibatches
         # In case of 1F1B schedule, num_minibatches == pipeline_par
         overlappable_chunks_exposed_time = num_overlappable_chunks * \
-          max(0, blocks_per_chunk * block_dp_time - \
+          max(0, self._blocks_per_chunk * self._block_dp_time - \
             self.exe.pipeline_par * chunk_bw_time)
         # in the last chunk, we overlap DP comm over first edge block and all
         # middle blocks, so we substract the time of the last edge block
         last_chunk_bw_time = chunk_bw_time - chunk_bw_pp_time - (
-          baseblock_bw_time + edgeblock_bw_time) / 2
+          self._baseblock_bw_time + self._edgeblock_bw_time) / 2
         last_chunk_exposed_time = max(0, (
-          last_chunk_overlap_size * block_dp_time - last_chunk_bw_time))
-        exposed_time = overlappable_chunks_exposed_time + last_chunk_exposed_time
-        self._dp_comm_time = block_dp_time + exposed_time
+          last_chunk_overlap_size * self._block_dp_time - last_chunk_bw_time))
+        exposed_time = \
+          overlappable_chunks_exposed_time + last_chunk_exposed_time
+        self._dp_comm_time = self._block_dp_time + exposed_time
       else:
-        self._dp_comm_time = self._blocks_per_proc * block_dp_time
+        self._dp_comm_time = self._blocks_per_proc * self._block_dp_time
     else:
       self._dp_comm_time = 0
     self.log.debug('DP comm time exposed: %.3e', self._dp_comm_time)
     self.log.debug('DP comm time on the link: %.3e',
-     self._blocks_per_proc * block_dp_time)
+     self._blocks_per_proc * self._block_dp_time)
 
     # memory capacity stats
     self._weight_space = self._block_weight_space * self._blocks_per_proc
@@ -971,11 +1003,12 @@ class Megatron: # stems from class (ParaGraph)
 
   def _get_bw_offload_size(self):
     bw_offload_size = 0
-    if self.exe.weight_offload:
-      bw_offload_size += self._block_weight_space
-    if self.exe.optimizer_offload:
-      bw_offload_size += \
-        self._block_weight_grad_space + self._block_optimizer_space
+    if self.exe.training:
+      if self.exe.weight_offload:
+        bw_offload_size += self._block_weight_space
+      if self.exe.optimizer_offload:
+        bw_offload_size += \
+          self._block_weight_grad_space + self._block_optimizer_space
     return bw_offload_size
 
   def get_fw_time(self):
@@ -987,8 +1020,14 @@ class Megatron: # stems from class (ParaGraph)
     return self._get_fw_offload_size() / self.offload_throughput
 
   def get_fw_offload_overhead(self):
-    time = max(self._fw_flops_time, self.get_fw_offload_time())
-    return time - self._fw_flops_time
+    baseblock_overhead = max(0,
+      self.get_fw_offload_time() - self._baseblock_fw_time)
+    edgeblock_overhead = max(0,
+      self.get_fw_offload_time() - self._edgeblock_fw_time)
+    full_overhead = self._num_minibatches * self._chunks_per_proc * (
+      (self._baseblocks_per_chunk * baseblock_overhead) +
+      (self._edgeblocks_per_chunk * edgeblock_overhead))
+    return full_overhead
 
   def get_bw_time(self):
     if self.exe.training:
@@ -1006,8 +1045,14 @@ class Megatron: # stems from class (ParaGraph)
 
   def get_bw_offload_overhead(self):
     if self.exe.training:
-      time = max(self._bw_flops_time, self.get_bw_offload_time())
-      return time - self._bw_flops_time
+      baseblock_overhead = max(0,
+        self.get_bw_offload_time() - self._baseblock_bw_time)
+      edgeblock_overhead = max(0,
+        self.get_bw_offload_time() - self._edgeblock_bw_time)
+      full_overhead = self._num_minibatches * self._chunks_per_proc * (
+        (self._baseblocks_per_chunk * baseblock_overhead) +
+        (self._edgeblocks_per_chunk * edgeblock_overhead))
+      return full_overhead
     else:
       return 0
 
@@ -1028,6 +1073,9 @@ class Megatron: # stems from class (ParaGraph)
 
   def get_dp_comm_time(self):
     return self._dp_comm_time
+
+  def get_dp_comm_net_time(self):
+    return self._blocks_per_proc * self._block_dp_time
 
   def get_total_time(self):
     time = self.get_fw_time()
@@ -1128,24 +1176,39 @@ class Megatron: # stems from class (ParaGraph)
     # We should be able to offload (write) activation during FW pass and
     # prefetch it (read) during BW pass for block (i-1)
     # After BW pass activations are discarded
-    return self._block_act_space / self._block_fw_flops_time
+    offload_time = min(
+      self._baseblock_fw_time - self._block_fw_mem_time,
+      self._edgeblock_fw_time - self._block_fw_mem_time)
+    return self._block_act_space / offload_time
 
   def get_weight_offload_bw_req(self):
     # We should be able to offload (write) and prefetch (read) weights both
     # during FW and BW passes for blocks (i-1) / (i+1).
     # We always keep weights, they cannot be discarded
-    return self._block_weight_space / self._block_fw_flops_time
+    offload_time = min(
+      self._baseblock_bw_time - self._block_bw_mem_time,
+      self._edgeblock_bw_time - self._block_bw_mem_time)
+    return self._block_weight_space / offload_time
 
   def get_optim_offload_bw_req(self):
     # We should be able to offload (write) weight grads and optimizer state
     # and prefetch (read) optimizer state during BW passes for blocks
     # (i-1) / (i+1).
+    offload_time = min(
+      self._baseblock_bw_time - self._block_bw_mem_time,
+      self._edgeblock_bw_time - self._block_bw_mem_time)
     return (self._block_weight_grad_space + self._block_optimizer_space) / \
-      self._block_bw_flops_time
+      offload_time
 
   def get_offload_mem_bw_req(self):
-    req_bw = max(self._get_fw_offload_size() / self._block_fw_flops_time,
-                 self._get_bw_offload_size() / self._block_bw_flops_time)
+    fw_offload_time = min(
+      self._baseblock_fw_time - self._block_fw_mem_time,
+      self._edgeblock_fw_time - self._block_fw_mem_time)
+    bw_offload_time = min(
+      self._baseblock_bw_time - self._block_bw_mem_time,
+      self._edgeblock_bw_time - self._block_bw_mem_time)
+    req_bw = max(self._get_fw_offload_size() / fw_offload_time,
+                 self._get_bw_offload_size() / bw_offload_time)
     return req_bw
 
   def display_stats(self):
@@ -1167,14 +1230,14 @@ class Megatron: # stems from class (ParaGraph)
       f"Optim space: {human_format(self.get_optimizer_space(), 'bytes')};\n" \
       f"Batch FW time: {self.get_fw_time():.4f};\n" \
       f"Batch BW time: {self.get_bw_time():.4f};\n" \
-      f"Batch FW offload time: {self.get_fw_offload_overhead():.4f};\n" \
-      f"Batch BW offload time: {self.get_bw_offload_overhead():.4f};\n" \
-      f"Batch recompute time: {self.get_recompute_time():.4f};\n" \
-      f"Batch recomm time: {self.get_recomm_time():.4f};\n" \
-      f"Batch bubble time: {self.get_bubble_time():.4f};\n" \
+      f"Batch FW offload overhead: {self.get_fw_offload_overhead():.4f};\n" \
+      f"Batch BW offload overhead: {self.get_bw_offload_overhead():.4f};\n" \
+      f"Batch recompute overhead: {self.get_recompute_time():.4f};\n" \
+      f"Batch recomm overhead: {self.get_recomm_time():.4f};\n" \
+      f"Batch bubble overhead: {self.get_bubble_time():.4f};\n" \
       f"Batch TP comm time: {self.get_tp_comm_time():.4f};\n" \
       f"Batch PP comm time: {self.get_pp_comm_time():.4f};\n" \
-      f"Batch DP comm time: {self.get_dp_comm_time():.4f};\n" \
+      f"Batch DP comm overhead: {self.get_dp_comm_time():.4f};\n" \
       f"Batch total time: {self.get_total_time():.4f};\n" \
       f"Activation offload required BW: {human_format(self.get_act_offload_bw_req(), 'bandwidth')};\n" \
       f"Weight offload required BW: {human_format(self.get_weight_offload_bw_req(), 'bandwidth')};\n" \
