@@ -69,6 +69,7 @@ class Megatron: # stems from class (ParaGraph)
         f'Bad pipeline interleaving of {self.pipeline_interleaving}'
       self.optimizer_sharding = cfg['optimizer_sharding']
       self.tensor_par_comm_type = cfg['tensor_par_comm_type']
+      self.in_network_reduction = False
       assert self.tensor_par_comm_type in ['ar', 'p2p_rs_ag', 'rs_ag']
       self._sequence_par = self.tensor_par_comm_type == 'rs_ag'
       self._pipeline_par_rs_ag = self.tensor_par_comm_type in ['p2p_rs_ag', 'rs_ag']
@@ -290,11 +291,12 @@ class Megatron: # stems from class (ParaGraph)
       "AttnBlock_F",
       self.activation_size,
       self.exe.tensor_par,
-      # TODO(misaev): make separate edge blocks condition(???)
-      # TODO(nicmcd): I DON'T THINK THIS IS STILL RIGHT, DOES p2p_rs_ag MODE ALSO SPLIT?
-      # split_comm=(self.exe.sequence_par or self.exe.p2p_rs_ag),
+      # We only compute flops/mem analyzing this layers, comm analyzed later
+      # This is conservative estimate that does not consider p2p_rs_ag
+      # because we don't differentiate between edge and middle blocks here
       split_comm=self.exe._sequence_par,
       conjugate=False,
+      in_network_reduction = self.exe.in_network_reduction,
       needs_recompute=recompute_flag))
     self._megatron_block.append(Fork(
       "AttnBlock_Fork",
@@ -349,11 +351,12 @@ class Megatron: # stems from class (ParaGraph)
       "AttnBlock_G",
       self.activation_size,
       self.exe.tensor_par,
-      # TODO(misaev): make separate edge blocks condition(???)
-      # TODO(nicmcd): I DON'T THINK THIS IS STILL RIGHT, DOES p2p_rs_ag MODE ALSO SPLIT?
-      #split_comm=(self.exe.sequence_par or self.exe.p2p_rs_ag),
+      # We only compute flops/mem analyzing this layers, comm analyzed later
+      # This is conservative estimate that does not consider p2p_rs_ag
+      # because we don't differentiate between edge and middle blocks here
       split_comm=self.exe._sequence_par,
       conjugate=True,
+      in_network_reduction = self.exe.in_network_reduction,
       needs_recompute=recompute_flag))
 
     self._megatron_block.append(DropOut(
@@ -382,11 +385,12 @@ class Megatron: # stems from class (ParaGraph)
       "MlpBlock_F",
       self.activation_size,
       self.exe.tensor_par,
-      # TODO(misaev): make separate edge blocks condition(???)
-      # TODO(nicmcd): I DON'T THINK THIS IS STILL RIGHT, DOES p2p_rs_ag MODE ALSO SPLIT?
-      #split_comm=(self.exe.sequence_par or self.exe.p2p_rs_ag),
+      # We only compute flops/mem analyzing this layers, comm analyzed later
+      # This is conservative estimate that does not consider p2p_rs_ag
+      # because we don't differentiate between edge and middle blocks here
       split_comm=self.exe._sequence_par,
       conjugate=False,
+      in_network_reduction = self.exe.in_network_reduction,
       needs_recompute=recompute_flag))
     self._megatron_block.append(Linear(
       "MlpBlock_Mlp1",
@@ -408,11 +412,12 @@ class Megatron: # stems from class (ParaGraph)
       "MlpBlock_G",
       self.activation_size,
       self.exe.tensor_par,
-      # TODO(misaev): make separate edge blocks condition(???)
-      # TODO(nicmcd): I DON'T THINK THIS IS STILL RIGHT, DOES p2p_rs_ag MODE ALSO SPLIT?
-      #split_comm=(self.exe.sequence_par or self.exe.p2p_rs_ag),
+      # We only compute flops/mem analyzing this layers, comm analyzed later
+      # This is conservative estimate that does not consider p2p_rs_ag
+      # because we don't differentiate between edge and middle blocks here
       split_comm=self.exe._sequence_par,
       conjugate=True,
+      in_network_reduction = self.exe.in_network_reduction,
       needs_recompute=recompute_flag))
 
     self._megatron_block.append(DropOut(

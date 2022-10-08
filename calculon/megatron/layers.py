@@ -362,24 +362,39 @@ class Fork(Layer):
     return self.activation_space * self.bytes_per_element * (self.num_users + 1)
 
 
-# TODO(misaev): introduce flop=bytes=0 for comm_size==1
 class TPComm(Layer):
   def __init__(self, name, act_size, comm_size,
                split_comm=False, conjugate=False,
+               in_network_reduction=False,
                needs_recompute=False):
-    # FW pass Identity/AllGather, BW pass AllReduce/ReduceScatter
-    fw_flops = 0
-    bw_flops = act_size * (comm_size - 1)
-    in_size = act_size
-    out_size = act_size
-    if split_comm and not conjugate:
-      in_size /= comm_size
-    # Conjugate function is opposite
-    if conjugate:
-      fw_flops = act_size * (comm_size - 1)
+    if comm_size == 1:
+      fw_flops = 0
       bw_flops = 0
-      if split_comm:
-        out_size /= comm_size
+      in_size = 0
+      out_size = 0
+    else:
+      if not conjugate:
+        # FW pass Identity/AllGather, BW pass AllReduce/ReduceScatter
+        fw_flops = 0
+        if not in_network_reduction:
+          bw_flops = act_size * (comm_size - 1)
+        else:
+          bw_flops = 0
+        in_size = act_size
+        out_size = act_size
+        if split_comm and not conjugate:
+          in_size /= comm_size
+      else:
+        # Conjugate function is opposite
+        if not in_network_reduction:
+          fw_flops = act_size * (comm_size - 1)
+        else:
+          fw_flops = 0
+        bw_flops = 0
+        in_size = act_size
+        out_size = act_size
+        if split_comm:
+          out_size /= comm_size
     super().__init__(name,
                      fw_flops=fw_flops,
                      bw_flops=bw_flops,
