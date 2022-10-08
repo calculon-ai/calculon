@@ -3,5 +3,5 @@
   "hidden": 25600,
   "seq_size": 2048,
   "attn_heads": 160,
-  "num_layers": 128
+  "num_blocks": 128
 }

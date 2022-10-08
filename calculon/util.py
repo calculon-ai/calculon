@@ -25,3 +25,9 @@ def human_format(value, v_type):
     else:
       break
   return "{0:.2f} {1}{2}".format(value, labels[index], suffix)
+
+
+def pick(en, a, b):
+  if en:
+    return a
+  return b
