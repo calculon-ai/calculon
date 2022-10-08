@@ -783,15 +783,11 @@ class Megatron: # stems from class (ParaGraph)
 
     # These TP numbers are for total times for all blocks in all chunks
     tp_fw_comm_time = self._chunks_per_proc * (
-      (self._baseblocks_per_chunk * (
-        baseblock_fw_tp_time + baseblock_fw_tp_time)) +
-      (self._edgeblocks_per_chunk * (
-        edgeblock_fw_tp_time + edgeblock_fw_tp_time)))
+      (self._baseblocks_per_chunk * baseblock_fw_tp_time) +
+      (self._edgeblocks_per_chunk * edgeblock_fw_tp_time))
     tp_bw_comm_time = self._chunks_per_proc * (
-      (self._baseblocks_per_chunk * (
-        baseblock_bw_tp_time + baseblock_bw_tp_time)) +
-      (self._edgeblocks_per_chunk * (
-        edgeblock_bw_tp_time + edgeblock_bw_tp_time)))
+      (self._baseblocks_per_chunk * baseblock_bw_tp_time) +
+      (self._edgeblocks_per_chunk * edgeblock_bw_tp_time))
     tp_recomm_time = self._chunks_per_proc * (
       self._blocks_per_chunk * block_recomm_time)
 
