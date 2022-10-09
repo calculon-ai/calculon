@@ -180,11 +180,12 @@ class Megatron: # stems from class (ParaGraph)
     self._block_recomm_size = 0
     self._block_fw_pp_size = 0
     self._block_bw_pp_size = 0
-    self._block_dp_time = 0
+    self._block_dp_size = 0
     self._baseblock_fw_time = 0
     self._edgeblock_fw_time = 0
     self._baseblock_bw_time = 0
     self._edgeblock_bw_time = 0
+    self._block_dp_time = 0
 
     self._block_weight_space = 0
     self._block_act_space = 0
@@ -660,9 +661,11 @@ class Megatron: # stems from class (ParaGraph)
 
     # Sets the TP communication operation size
     # we multiply by 2 as there are two F/G comm instructions in each block
+    # Also we don't ask network to reduce own data
     if self.exe.tensor_par > 1:
       self._block_fw_tp_size = 2 * self.activation_size * \
-        self._bytes_per_element
+      self._bytes_per_element * (
+        self.exe.tensor_par - 1) / self.exe.tensor_par
     else:
       self._block_fw_tp_size = 0
 
@@ -782,13 +785,13 @@ class Megatron: # stems from class (ParaGraph)
       edgeblock_bw_tp_time = 0
 
     # These TP numbers are for total times for all blocks in all chunks
-    tp_fw_comm_time = self._chunks_per_proc * (
+    tp_fw_comm_time = self._num_minibatches * self._chunks_per_proc * (
       (self._baseblocks_per_chunk * baseblock_fw_tp_time) +
       (self._edgeblocks_per_chunk * edgeblock_fw_tp_time))
-    tp_bw_comm_time = self._chunks_per_proc * (
+    tp_bw_comm_time = self._num_minibatches * self._chunks_per_proc * (
       (self._baseblocks_per_chunk * baseblock_bw_tp_time) +
       (self._edgeblocks_per_chunk * edgeblock_bw_tp_time))
-    tp_recomm_time = self._chunks_per_proc * (
+    tp_recomm_time = self._num_minibatches * self._chunks_per_proc * (
       self._blocks_per_chunk * block_recomm_time)
 
     # Per chunk PP comm time
@@ -800,9 +803,9 @@ class Megatron: # stems from class (ParaGraph)
     # Determines number of times PP causes pipeline p2p communications per
     # chunk during the forward and backward pass (equal to chunks pper proc)
     if self.exe.pipeline_par > 1:
-      num_fw_pp_p2ps = self.exe.pipeline_interleaving
+      num_fw_pp_p2ps = self._chunks_per_proc
       if self.exe.training:
-        num_bw_pp_p2ps = self.exe.pipeline_interleaving
+        num_bw_pp_p2ps = self._chunks_per_proc
       else:
         num_bw_pp_p2ps = 0
     else:
@@ -810,13 +813,22 @@ class Megatron: # stems from class (ParaGraph)
       num_bw_pp_p2ps = 0
 
     # These PP numbers are for total times for all blocks and all minibatches
-    pp_fw_comm_time = self._chunks_per_proc * num_fw_pp_p2ps * chunk_fw_pp_time
-    pp_bw_comm_time = self._chunks_per_proc * num_bw_pp_p2ps * chunk_bw_pp_time
+    pp_fw_comm_time = self._num_minibatches * num_fw_pp_p2ps * chunk_fw_pp_time
+    pp_bw_comm_time = self._num_minibatches * num_bw_pp_p2ps * chunk_bw_pp_time
 
     # Aggregrates metrics
     self._tp_comm_time = tp_fw_comm_time + tp_bw_comm_time
     self._recomm_time = tp_recomm_time
     self._pp_comm_time = pp_fw_comm_time + pp_bw_comm_time
+
+    self.log.debug("%s %s", 'TP comm baseblock FW time:', baseblock_fw_tp_time)
+    self.log.debug("%s %s", 'TP comm edgeblock FW time:', edgeblock_fw_tp_time)
+    self.log.debug("%s %s", 'TP comm FW time:', tp_fw_comm_time)
+    self.log.debug("%s %s", 'TP comm baseblock BW time:', baseblock_bw_tp_time)
+    self.log.debug("%s %s", 'TP comm edgeblock BW time:', edgeblock_bw_tp_time)
+    self.log.debug("%s %s", 'TP comm BW time:', tp_bw_comm_time)
+    self.log.debug("%s %s", 'PP comm FW time:', pp_fw_comm_time)
+    self.log.debug("%s %s", 'PP comm BW time:', pp_bw_comm_time)
 
     # Bubble forms between i-th minibatch FW and BW passes on the 1st GPU.
     # With no interleaving between blocks, it includes
@@ -861,23 +873,25 @@ class Megatron: # stems from class (ParaGraph)
     # Determines how long it takes to perform the DP per block
     # This assumes no DP communication overlap (will be adjusted later).
     if self.exe.data_par > 1:
+      self._block_dp_size = self._block_weight_space * (
+        self.exe.data_par - 1) / self.exe.data_par
       if self.exe.optimizer_sharding:
         # When performing optimizer sharding, the communication time is a
         # reduce-scatter plus an all-gather.
         self._block_dp_time = \
           self.sys.network_time(self._dp_net_tier, 'reduce_scatter',
-                                self._block_weight_space) + \
+                                self._block_dp_size) + \
           self.sys.network_time(self._dp_net_tier, 'all_gather',
-                                self._block_weight_space)
+                                self._block_dp_size)
       else:
         # When not performing optimizer sharding, the communication time is a
         # single all-reduce.
         self._block_dp_time = self.sys.network_time(
-          self._dp_net_tier, 'all_reduce', self._block_weight_space)
+          self._dp_net_tier, 'all_reduce', self._block_dp_size)
     else:
       self._block_dp_time = 0
     self.log.debug('DP block comm size: %s', human_format(
-      self._block_weight_space, 'bytes'))
+      self._block_dp_size, 'bytes'))
     self.log.debug(
       'DP block comm time (no overlap): %.3e', self._block_dp_time)
 
