@@ -590,7 +590,8 @@ class Megatron: # stems from class (ParaGraph)
       # Accumulate space requirements per block
       self._block_weight_space += layer.get_weight()
       self._block_act_space += layer.get_activation()
-      self._block_act_checkpoint_size = self.activation_size
+      self._block_act_checkpoint_size = \
+        self.activation_size * self._bytes_per_element
       self._block_weight_grad_space += layer.get_weight_grad()
       self._block_weight_grad_space_no_sharding += layer.get_weight_grad(
         sharded=False)
@@ -826,6 +827,8 @@ class Megatron: # stems from class (ParaGraph)
     self.log.debug("%s %s", 'TP comm FW time:', tp_fw_comm_time)
     self.log.debug("%s %s", 'TP comm baseblock BW time:', baseblock_bw_tp_time)
     self.log.debug("%s %s", 'TP comm edgeblock BW time:', edgeblock_bw_tp_time)
+    self.log.debug("%s %s", 'PP comm chunk FW time:', chunk_fw_pp_time)
+    self.log.debug("%s %s", 'PP comm chunk BW time:', chunk_bw_pp_time)
     self.log.debug("%s %s", 'TP comm BW time:', tp_bw_comm_time)
     self.log.debug("%s %s", 'PP comm FW time:', pp_fw_comm_time)
     self.log.debug("%s %s", 'PP comm BW time:', pp_bw_comm_time)
@@ -860,15 +863,27 @@ class Megatron: # stems from class (ParaGraph)
 
     chunk_fw_time = (
       (self._baseblocks_per_chunk * self._baseblock_fw_time) +
-      (self._edgeblocks_per_chunk * self._edgeblock_fw_time) +
-      chunk_fw_pp_time)
+      (self._edgeblocks_per_chunk * self._edgeblock_fw_time))
     chunk_bw_time = (
       (self._baseblocks_per_chunk * self._baseblock_bw_time) +
-      (self._edgeblocks_per_chunk * self._edgeblock_bw_time) +
-      chunk_bw_pp_time)
+      (self._edgeblocks_per_chunk * self._edgeblock_bw_time))
     chunk_time = chunk_fw_time + chunk_bw_time
     chunks_in_bubble = self.exe.pipeline_par - 1
     self._bubble_time = chunks_in_bubble * chunk_time
+
+    self.log.debug("%s %s", 'Block FW flops time:',
+      self._block_fw_flops_time)
+    self.log.debug("%s %s", 'Block FW mem time:', self._block_fw_mem_time)
+    self.log.debug("%s %s", 'Baseblock FW time:', self._baseblock_fw_time)
+    self.log.debug("%s %s", 'Edgeblock FW time:', self._edgeblock_fw_time)
+    self.log.debug("%s %s", 'Block BW flops time:',
+      self._block_bw_flops_time)
+    self.log.debug("%s %s", 'Block BW mem time:', self._block_bw_mem_time)
+    self.log.debug("%s %s", 'Block BW recompute time:',
+      self._block_recompute_time)
+    self.log.debug("%s %s", 'Block BW recomm time:', block_recomm_time)
+    self.log.debug("%s %s", 'Baseblock BW time:', self._baseblock_bw_time)
+    self.log.debug("%s %s", 'Edgeblock BW time:', self._edgeblock_bw_time)
 
     # Determines how long it takes to perform the DP per block
     # This assumes no DP communication overlap (will be adjusted later).
