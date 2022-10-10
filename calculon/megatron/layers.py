@@ -377,7 +377,7 @@ class TPComm(Layer):
         # FW pass Identity/AllGather, BW pass AllReduce/ReduceScatter
         fw_flops = 0
         if not in_network_reduction:
-          bw_flops = act_size * (comm_size - 1)
+          bw_flops = act_size * (comm_size - 1) / comm_size
         else:
           bw_flops = 0
         in_size = act_size
@@ -387,7 +387,7 @@ class TPComm(Layer):
       else:
         # Conjugate function is opposite
         if not in_network_reduction:
-          fw_flops = act_size * (comm_size - 1)
+          fw_flops = act_size * (comm_size - 1) / comm_size
         else:
           fw_flops = 0
         bw_flops = 0
