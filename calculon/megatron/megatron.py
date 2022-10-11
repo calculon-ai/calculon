@@ -91,8 +91,14 @@ class Megatron: # stems from class (ParaGraph)
 
   @staticmethod
   def _factors(x):
-    for cand in range(1, x+1):
+    for cand in range(1, x + 1):
       if x % cand == 0:
+        yield cand
+
+  @staticmethod
+  def _factors_with_check(x, check):
+    for cand in range(1, x + 1):
+      if x % cand == 0 and check(cand):
         yield cand
 
   @staticmethod
@@ -120,10 +126,16 @@ class Megatron: # stems from class (ParaGraph)
       yield from Megatron._factors(max_ppint)
 
   @staticmethod
-  def get_valid_minibatch_sizes(data_par, batch_size):
+  def get_valid_minibatch_sizes(data_par, batch_size, pipeline_par):
     assert batch_size % data_par == 0
     local_batch_size = batch_size // data_par
-    yield from Megatron._factors(local_batch_size)
+    # TODO(misaev): pipeline_par limitation to be removed
+    #yield from Megatron._factors(local_batch_size)
+    def is_ok(cand):
+      assert local_batch_size % cand == 0
+      num_minibatches = local_batch_size // cand
+      return num_minibatches >= pipeline_par
+    yield from Megatron._factors_with_check(local_batch_size, is_ok)
 
   def __init__(self, app, log):
     assert isinstance(app, self.Application)
@@ -294,6 +306,10 @@ class Megatron: # stems from class (ParaGraph)
     recompute_flag = self.exe.activation_recompute == "full"
     recompute_attn_flag = self.exe.activation_recompute in ["full", "partial"]
 
+    # TODO(misaev): make sure all "/" operators in these two "build" functions
+    # are intended to be floating point results. If not use "//" instead and
+    # precede them with an assert that the input sizes equally divide.
+
     self._megatron_block.append(LayerNorm(
       "AttnBlock_LayerNorm",
       pick(self.exe._sequence_par, self.seq_par_activation_size,
@@ -451,7 +467,7 @@ class Megatron: # stems from class (ParaGraph)
     assert isinstance(exe, self.Execution)
     self.exe = exe
 
-    self._num_minibatches = self.exe.batch_size / self.exe.data_par / \
+    self._num_minibatches = self.exe.batch_size // self.exe.data_par // \
       self.exe.minibatch_size
     # TODO(misaev): this causes bubbles inside the chunk that we haven't
     # accounted for.
@@ -461,7 +477,7 @@ class Megatron: # stems from class (ParaGraph)
     if self.app.num_blocks % self.exe.pipeline_par != 0:
       raise self.Error('Pipeline parallelism must evenly divide the number of '
                        'blocks')
-    self._blocks_per_proc = self.app.num_blocks / self.exe.pipeline_par
+    self._blocks_per_proc = self.app.num_blocks // self.exe.pipeline_par
     if self.exe.pipeline_interleaving > self._blocks_per_proc:
       raise self.Error('Pipeline interleaving must be less than or equal to '
                        'the number of blocks per processor')
@@ -482,8 +498,9 @@ class Megatron: # stems from class (ParaGraph)
     # block that is repeated N-1 times and followed by 1 edge block.
     # Recommunication time is the same in both base and edge blocks.
     self._blocks_per_chunk = \
-      self._blocks_per_proc / self.exe.pipeline_interleaving
-    self._chunks_per_proc = self._blocks_per_proc / self._blocks_per_chunk
+      self._blocks_per_proc // self.exe.pipeline_interleaving
+    assert self._blocks_per_proc % self._blocks_per_chunk == 0
+    self._chunks_per_proc = self._blocks_per_proc // self._blocks_per_chunk
     assert self._chunks_per_proc == self.exe.pipeline_interleaving, \
       "Number of chunks should be equal to pipeline_interleaving"
     self._baseblocks_per_chunk = self._blocks_per_chunk - 1
