@@ -60,16 +60,10 @@ class System:
     else:
       assert False
 
-  def _network(self, tier):
+  def get_network(self, tier):
     if tier == 1:
       return self.net_tier1
     elif tier == 2:
       return self.net_tier2
     else:
       assert False, f'Bad network tier ID: {tier}'
-
-  def network_size(self, tier):
-    return self._network(tier).size()
-
-  def network_time(self, tier, op, size):
-    return self._network(tier).time(op, size)

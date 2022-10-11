@@ -172,8 +172,11 @@ class Megatron: # stems from class (ParaGraph)
 
     # Assignments to specific networks
     self._tp_net_tier = 0
+    self._tp_net = 0
     self._dp_net_tier = 0
+    self._dp_net = 0
     self._pp_net_tier = 0
+    self._pp_net = 0
 
     # metrics collected after run for each minibatch
     self._block_fw_flops = 0
@@ -535,9 +538,16 @@ class Megatron: # stems from class (ParaGraph)
     self.log.debug("%s %s", "offload_throughput:",
       human_format(self.offload_throughput, 'bandwidth'))
 
+    # TODO(nicmcd): there are possible permutations of T,P,D and the
+    # corresponding network tiers that we are missing here. Write an algorithm
+    # to search them all and choose the best.
+    # It might be true that we can't know the best assignment and that we need
+    # to move the assignment into the execution configuration and sweep the
+    # permutation from the outside.
+
     # Determines network tier for TP
-    net_tier1_size = self.sys.network_size(1)
-    net_tier2_size = self.sys.network_size(2)
+    net_tier1_size = self.sys.get_network(1).size
+    net_tier2_size = self.sys.get_network(2).size
     assert (self.exe.tensor_par <= net_tier1_size or
             self.exe.tensor_par <= net_tier2_size), \
             f"t={self.exe.tensor_par} is larger than the network " \
@@ -547,6 +557,7 @@ class Megatron: # stems from class (ParaGraph)
       self._tp_net_tier = 1
     else:
       self._tp_net_tier = 2
+    self._tp_net = self.sys.get_network(self._tp_net_tier)
 
     # Determines network tier for DP
     assert (self.exe.data_par * self.exe.tensor_par <= net_tier1_size or
@@ -558,6 +569,7 @@ class Megatron: # stems from class (ParaGraph)
       self._dp_net_tier = 1
     else:
       self._dp_net_tier = 2
+    self._dp_net = self.sys.get_network(self._dp_net_tier)
 
     # Determines network tier for PP
     assert (self.exe.pipeline_par * self.exe.data_par * self.exe.tensor_par <= net_tier1_size or
@@ -570,6 +582,7 @@ class Megatron: # stems from class (ParaGraph)
       self._pp_net_tier = 1
     else:
       self._pp_net_tier = 2
+    self._pp_net = self.sys.get_network(self._pp_net_tier)
 
   def _compute_block_stats(self):
     """
@@ -677,13 +690,18 @@ class Megatron: # stems from class (ParaGraph)
       self.log.debug("%s %s %s", layer.name, 'Incremental Optim:',
         human_format(self._block_optimizer_space, 'bytes'))
 
-    # Sets the TP communication operation size
-    # we multiply by 2 as there are two F/G comm instructions in each block
-    # Also we don't ask network to reduce own data
+    # Megatron has 2 communication operations per block when using tensor
+    # parallelism
     if self.exe.tensor_par > 1:
-      self._block_fw_tp_size = 2 * self.activation_size * \
-      self._bytes_per_element * (
-        self.exe.tensor_par - 1) / self.exe.tensor_par
+      self._block_tp_comm_count = 2
+    else:
+      self._block_tp_comm_count = 0
+
+    # Sets the TP communication operation size.
+    # Note: this is for a single operation but there are two F/G comm
+    # instructions in each block.
+    if self.exe.tensor_par > 1:
+      self._block_fw_tp_size = self.activation_size * self._bytes_per_element
     else:
       self._block_fw_tp_size = 0
 
@@ -746,59 +764,63 @@ class Megatron: # stems from class (ParaGraph)
     # activation checkpoint  (not distributed across TP nodes)
     # TODO(misaev): think if we want to introduce split_act_cp optimization
     if self.exe.tensor_par > 1 and self.exe.activation_recompute == 'full':
-      block_recomm_time = self.sys.network_time(
-        self._tp_net_tier, 'all_reduce', self._block_recomm_size)
+      block_recomm_time = self._block_tp_comm_count * self._tp_net.time(
+        'all_reduce', self._block_recomm_size, self.exe.tensor_par)
     else:
       block_recomm_time = 0
 
     # Computes TP communication times base and edge blocks, split into FW and BW
-    # NOTE: if tensor_par is 1, sizes will be 0 and times will therefore be 0
-    if self.exe._sequence_par:
-      baseblock_fw_tp_time = (
-        self.sys.network_time(self._tp_net_tier, 'reduce_scatter',
-                              self._block_fw_tp_size) +
-        self.sys.network_time(self._tp_net_tier, 'all_gather',
-                              self._block_fw_tp_size))
-    else:
-      baseblock_fw_tp_time = (
-        self.sys.network_time(self._tp_net_tier, 'all_reduce',
-                              self._block_fw_tp_size))
-    if self.exe._pipeline_par_rs_ag:
-      edgeblock_fw_tp_time = (
-        self.sys.network_time(self._tp_net_tier, 'reduce_scatter',
-                              self._block_fw_tp_size) +
-        self.sys.network_time(self._tp_net_tier, 'all_gather',
-                              self._block_fw_tp_size))
-    else:
-      edgeblock_fw_tp_time = (
-        self.sys.network_time(self._tp_net_tier, 'all_reduce',
-                              self._block_fw_tp_size))
-    if self.exe.training:
-      baseblock_bw_tp_time = edgeblock_fw_tp_time
+    if self.exe.tensor_par > 1:
       if self.exe._sequence_par:
-        baseblock_bw_tp_time = (
-          self.sys.network_time(self._tp_net_tier, 'reduce_scatter',
-                                self._block_bw_tp_size) +
-          self.sys.network_time(self._tp_net_tier, 'all_gather',
-                                self._block_bw_tp_size))
+        baseblock_fw_tp_time = self._block_tp_comm_count * (
+          self._tp_net.time(
+            'reduce_scatter', self._block_fw_tp_size, self.exe.tensor_par) +
+          self._tp_net.time(
+            'all_gather', self._block_fw_tp_size, self.exe.tensor_par))
       else:
-        baseblock_bw_tp_time = (
-          self.sys.network_time(self._tp_net_tier, 'all_reduce',
-                                self._block_bw_tp_size))
+        baseblock_fw_tp_time = self._block_tp_comm_count * (
+          self._tp_net.time(
+            'all_reduce', self._block_fw_tp_size, self.exe.tensor_par))
       if self.exe._pipeline_par_rs_ag:
-        edgeblock_bw_tp_time = (
-          self.sys.network_time(self._tp_net_tier, 'reduce_scatter',
-                                self._block_bw_tp_size) +
-          self.sys.network_time(self._tp_net_tier, 'all_gather',
-                                self._block_bw_tp_size))
+        edgeblock_fw_tp_time = self._block_tp_comm_count * (
+          self._tp_net.time(
+            'reduce_scatter', self._block_fw_tp_size, self.exe.tensor_par) +
+          self._tp_net.time(
+            'all_gather', self._block_fw_tp_size, self.exe.tensor_par))
       else:
-        edgeblock_bw_tp_time = (
-          self.sys.network_time(self._tp_net_tier, 'all_reduce',
-                                self._block_bw_tp_size))
-        assert edgeblock_bw_tp_time == edgeblock_fw_tp_time and \
-          baseblock_bw_tp_time == baseblock_fw_tp_time, \
-        "We expect TP communication time is the same during FW and BW passes"
+        edgeblock_fw_tp_time = self._block_tp_comm_count * (
+          self._tp_net.time(
+            'all_reduce', self._block_fw_tp_size, self.exe.tensor_par))
+      if self.exe.training:
+        if self.exe._sequence_par:
+          baseblock_bw_tp_time = self._block_tp_comm_count * (
+            self._tp_net.time(
+              'reduce_scatter', self._block_bw_tp_size, self.exe.tensor_par) +
+            self._tp_net.time(
+              'all_gather', self._block_bw_tp_size, self.exe.tensor_par))
+        else:
+          baseblock_bw_tp_time = self._block_tp_comm_count * (
+            self._tp_net.time(
+              'all_reduce', self._block_bw_tp_size, self.exe.tensor_par))
+        if self.exe._pipeline_par_rs_ag:
+          edgeblock_bw_tp_time = self._block_tp_comm_count * (
+            self._tp_net.time(
+              'reduce_scatter', self._block_bw_tp_size, self.exe.tensor_par) +
+            self._tp_net.time(
+              'all_gather', self._block_bw_tp_size, self.exe.tensor_par))
+        else:
+          edgeblock_bw_tp_time = self._block_tp_comm_count * (
+            self._tp_net.time(
+              'all_reduce', self._block_bw_tp_size, self.exe.tensor_par))
+          assert edgeblock_bw_tp_time == edgeblock_fw_tp_time and \
+            baseblock_bw_tp_time == baseblock_fw_tp_time, \
+          "We expect TP communication time is the same during FW and BW passes"
+      else:
+        baseblock_bw_tp_time = 0
+        edgeblock_bw_tp_time = 0
     else:
+      baseblock_fw_tp_time = 0
+      edgeblock_fw_tp_time = 0
       baseblock_bw_tp_time = 0
       edgeblock_bw_tp_time = 0
 
@@ -813,13 +835,11 @@ class Megatron: # stems from class (ParaGraph)
       self._blocks_per_chunk * block_recomm_time)
 
     # Per chunk PP comm time
-    chunk_fw_pp_time = self.sys.network_time(
-      self._pp_net_tier, 'p2p', self._block_fw_pp_size)
-    chunk_bw_pp_time = self.sys.network_time(
-      self._pp_net_tier, 'p2p', self._block_bw_pp_size)
+    chunk_fw_pp_time = self._pp_net.time('p2p', self._block_fw_pp_size, 2)
+    chunk_bw_pp_time = self._pp_net.time('p2p', self._block_bw_pp_size, 2)
 
     # Determines number of times PP causes pipeline p2p communications per
-    # chunk during the forward and backward pass (equal to chunks pper proc)
+    # chunk during the forward and backward pass (equal to chunks per proc)
     if self.exe.pipeline_par > 1:
       num_fw_pp_p2ps = self._chunks_per_proc
       if self.exe.training:
@@ -905,21 +925,20 @@ class Megatron: # stems from class (ParaGraph)
     # Determines how long it takes to perform the DP per block
     # This assumes no DP communication overlap (will be adjusted later).
     if self.exe.data_par > 1:
-      self._block_dp_size = self._block_weight_space * (
-        self.exe.data_par - 1) / self.exe.data_par
+      self._block_dp_size = self._block_weight_space
       if self.exe.optimizer_sharding:
         # When performing optimizer sharding, the communication time is a
         # reduce-scatter plus an all-gather.
-        self._block_dp_time = \
-          self.sys.network_time(self._dp_net_tier, 'reduce_scatter',
-                                self._block_dp_size) + \
-          self.sys.network_time(self._dp_net_tier, 'all_gather',
-                                self._block_dp_size)
+        self._block_dp_time = (
+          self._dp_net.time(
+            'reduce_scatter', self._block_dp_size, self.exe.data_par) +
+          self._dp_net.time(
+            'all_gather', self._block_dp_size, self.exe.data_par))
       else:
         # When not performing optimizer sharding, the communication time is a
         # single all-reduce.
-        self._block_dp_time = self.sys.network_time(
-          self._dp_net_tier, 'all_reduce', self._block_dp_size)
+        self._block_dp_time = self._dp_net.time(
+          'all_reduce', self._block_dp_size, self.exe.data_par)
     else:
       self._block_dp_time = 0
     self.log.debug('DP block comm size: %s', human_format(

@@ -44,10 +44,27 @@ class Network:
     assert all(Network._valid_op(k, v) for k, v in self._ops.items())
     assert set(self._ops.keys()) == Network.kNetOps
 
+    # TODO(nicmcd): support reduction algorithms with (n-1)/n overhead scaling
+
+  @property
   def size(self):
     return self._size
 
-  def time(self, op, size):
+  def time(self, op, op_size, comm_size):
+    """ Computes the time taken for a network operation.
+
+    Args:
+      op (str)        : operation name
+      op_size (int)   : operation size in bytes
+      comm_size (int) : number of participants in operation
+
+    Returns:
+      time (float)    : time needed for operation
+    """
+    if op == 'p2p':
+      assert comm_size == 2
+    else:
+      assert comm_size > 1
     assert op in Network.kNetOps
-    assert size >= 0
-    return size / (self._bw * self._eff * self._ops[op])
+    assert op_size >= 0
+    return op_size / (self._bw * self._eff * self._ops[op])
