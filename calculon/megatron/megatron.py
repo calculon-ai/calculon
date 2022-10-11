@@ -626,6 +626,8 @@ class Megatron: # stems from class (ParaGraph)
       # Accumulate space requirements per block
       self._block_weight_space += layer.get_weight()
       self._block_act_space += layer.get_activation()
+      # TODO(misaev): why isn't this a += operator?
+      # It is just getting overwritten for each layer!
       self._block_act_checkpoint_size = \
         self.activation_size * self._bytes_per_element
       self._block_weight_grad_space += layer.get_weight_grad()
@@ -963,7 +965,7 @@ class Megatron: # stems from class (ParaGraph)
     # p-1 minibatches through the same amount of blocks if memory capacity is
     # enough, or perform offload/prefetch after each block-minibatch
     # For simplicity we count only bandwidth-optimal case
-    if self.exe.data_par > 1:
+    if self.exe.data_par > 1 and self.exe.training:
       if self.exe.data_par_overlap:
         # we can evenly overlap all the chunks except for the last one
         # in the ast chunk we can overlap only all blocks except for the last
@@ -1068,6 +1070,28 @@ class Megatron: # stems from class (ParaGraph)
     assert self._act_grad_space >= self._block_act_grad_space
     assert self._optimizer_space >= self._block_optimizer_space
 
+    if not self.exe.training:
+      # when not training (inference), backward is not performed and DP has no
+      # communication overhead
+      assert self.get_bw_time() == 0
+      assert self.get_bw_offload_time() == 0
+      assert self.get_recompute_time() == 0
+      assert self.get_act_checkpoint_size() == 0
+      assert self.get_dp_comm_time() == 0
+    else:
+      # when training, backward is performed
+      assert self.get_bw_time() == 0
+      assert self.get_bw_offload_time() == 0
+      if self.exe.activation_recompute == 'full':
+        assert self.get_recompute_time() > 0
+        assert self.get_act_checkpoint_size() == 0
+      elif self.exe.activation_recompute == 'partial':
+        assert self.get_recompute_time() > 0
+        assert self.get_act_checkpoint_size() > 0
+      else:
+        assert self.get_recompute_time() == 0
+        assert self.get_act_checkpoint_size() > 0
+
 
   def run(self, sys):
     assert self._compiled, "You must first call self.compile()"
@@ -1147,10 +1171,16 @@ class Megatron: # stems from class (ParaGraph)
       return 0
 
   def get_recompute_time(self):
-    return self._recompute_time
+    if self.exe.training:
+      return self._recompute_time
+    else:
+      return 0
 
   def get_recomm_time(self):
-    return self._recomm_time
+    if self.exe.training:
+      return self._recomm_time
+    else:
+      return 0
 
   def get_bubble_time(self):
     return self._bubble_time
@@ -1212,9 +1242,13 @@ class Megatron: # stems from class (ParaGraph)
     return self._act_space
 
   def get_act_checkpoint_size(self):
-    if self.exe.activation_recompute != 'full':
+    if self.exe.training:
+      if self.exe.activation_recompute != 'full':
+        return 0
+      else:
+        return self._act_checkpoint_size
+    else:
       return 0
-    return self._act_checkpoint_size
 
   def get_weight_grad_space(self):
     return self._weight_grad_space
