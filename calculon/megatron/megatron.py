@@ -154,6 +154,7 @@ class Megatron: # stems from class (ParaGraph)
 
     # Holds the layers in a single block
     self._megatron_block = []
+
     # A chunk is a set of blocks for minibatch before passing to the next
     # processor in the pipeline. Each chunk is modeled as a base
     # block that is repeated N-1 times and followed by 1 edge block.
@@ -1043,7 +1044,25 @@ class Megatron: # stems from class (ParaGraph)
     if self.exe.data_par == 1:
       assert self.get_dp_comm_time() == 0
 
+    assert self._fw_flops >= self._block_fw_flops
+    assert self._fw_flops_time >= self._block_fw_flops_time
+    assert self._fw_mem_accessed >= self._block_fw_mem_accessed
+    assert self._fw_mem_time >= self._block_fw_mem_time
+    assert self._bw_flops >= self._block_bw_flops
+    assert self._bw_flops_time >= self._block_bw_flops_time
+    assert self._bw_mem_accessed >= self._block_bw_mem_accessed
+    assert self._bw_mem_time >= self._block_bw_mem_time
+    assert self._recompute_time >= self._block_recompute_time
+
+    assert self._weight_space >= self._block_weight_space
     assert self._act_space >= self._block_act_space
+    assert self._act_checkpoint_size >= self._block_act_checkpoint_size
+    assert self._weight_grad_space >= self._block_weight_grad_space
+    # TODO(misaev): fix this, it fails
+    #assert self._weight_grad_space_no_sharding >= self._block_weight_grad_space_no_sharding
+    assert self._act_grad_space >= self._block_act_grad_space
+    assert self._optimizer_space >= self._block_optimizer_space
+
 
   def run(self, sys):
     assert self._compiled, "You must first call self.compile()"
