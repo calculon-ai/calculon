@@ -51,15 +51,23 @@ class Megatron: # stems from class (ParaGraph)
     def __init__(self, cfg):
       self.cfg = cfg
       self.num_procs = cfg['num_procs']
+      assert self.num_procs > 0
       self.tensor_par = cfg['tensor_par']
+      assert self.tensor_par > 0
       self.pipeline_par = cfg['pipeline_par']
+      assert self.pipeline_par > 0
       self.data_par = cfg['data_par']
+      assert self.data_par > 0
       assert self.num_procs == self.tensor_par * self.pipeline_par * \
         self.data_par, 'tensor * pipeline * data parallelism != num_procs'
-      self.batch_size = cfg['batch_size']
+      self.global_batch_size = cfg['batch_size']
+      assert self.global_batch_size > 0
       self.minibatch_size = cfg['minibatch_size']
-      assert self.batch_size % self.data_par == 0
-      assert (self.batch_size // self.data_par) % self.minibatch_size == 0
+      assert self.minibatch_size > 0
+      assert self.global_batch_size % self.data_par == 0
+      self._local_batch_size = self.global_batch_size // self.data_par
+      assert self._local_batch_size % self.minibatch_size == 0
+      self._num_minibatches = self._local_batch_size // self.minibatch_size
       self.datatype = cfg['datatype']
       self.activation_recompute = cfg['activation_recompute']
       assert self.activation_recompute in ['full', 'partial', 'none']
@@ -125,9 +133,9 @@ class Megatron: # stems from class (ParaGraph)
       yield from Megatron._factors(max_ppint)
 
   @staticmethod
-  def get_valid_minibatch_sizes(data_par, batch_size, pipeline_par):
-    assert batch_size % data_par == 0
-    local_batch_size = batch_size // data_par
+  def get_valid_minibatch_sizes(data_par, global_batch_size, pipeline_par):
+    assert global_batch_size % data_par == 0
+    local_batch_size = global_batch_size // data_par
     # TODO(misaev): pipeline_par limitation to be removed
     #yield from Megatron._factors(local_batch_size)
     def is_ok(cand):
@@ -470,11 +478,9 @@ class Megatron: # stems from class (ParaGraph)
     assert isinstance(exe, self.Execution)
     self.exe = exe
 
-    self._num_minibatches = self.exe.batch_size // self.exe.data_par // \
-      self.exe.minibatch_size
     # TODO(misaev): this causes bubbles inside the chunk that we haven't
     # accounted for.
-    assert self._num_minibatches >= self.exe.pipeline_par, \
+    assert self.exe._num_minibatches >= self.exe.pipeline_par, \
       "Config not yet supported, please make num_minibatches >= pipeline_par"
 
     if self.app.num_blocks % self.exe.pipeline_par != 0:
@@ -747,7 +753,7 @@ class Megatron: # stems from class (ParaGraph)
     minibatch per block statistics from the prior function (see above).
     """
     # Total stats for compute and memory
-    mult = self._blocks_per_proc * self._num_minibatches
+    mult = self._blocks_per_proc * self.exe._num_minibatches
     self._fw_flops = mult * self._block_fw_flops
     self._fw_flops_time = mult * self._block_fw_flops_time
     self._fw_mem_accessed = mult * self._block_fw_mem_accessed
@@ -825,13 +831,13 @@ class Megatron: # stems from class (ParaGraph)
       edgeblock_bw_tp_time = 0
 
     # These TP numbers are for total times for all blocks in all chunks
-    tp_fw_comm_time = self._num_minibatches * self._chunks_per_proc * (
+    tp_fw_comm_time = self.exe._num_minibatches * self._chunks_per_proc * (
       (self._baseblocks_per_chunk * baseblock_fw_tp_time) +
       (self._edgeblocks_per_chunk * edgeblock_fw_tp_time))
-    tp_bw_comm_time = self._num_minibatches * self._chunks_per_proc * (
+    tp_bw_comm_time = self.exe._num_minibatches * self._chunks_per_proc * (
       (self._baseblocks_per_chunk * baseblock_bw_tp_time) +
       (self._edgeblocks_per_chunk * edgeblock_bw_tp_time))
-    tp_recomm_time = self._num_minibatches * self._chunks_per_proc * (
+    tp_recomm_time = self.exe._num_minibatches * self._chunks_per_proc * (
       self._blocks_per_chunk * block_recomm_time)
 
     # Per chunk PP comm time
@@ -851,8 +857,8 @@ class Megatron: # stems from class (ParaGraph)
       num_bw_pp_p2ps = 0
 
     # These PP numbers are for total times for all blocks and all minibatches
-    pp_fw_comm_time = self._num_minibatches * num_fw_pp_p2ps * chunk_fw_pp_time
-    pp_bw_comm_time = self._num_minibatches * num_bw_pp_p2ps * chunk_bw_pp_time
+    pp_fw_comm_time = self.exe._num_minibatches * num_fw_pp_p2ps * chunk_fw_pp_time
+    pp_bw_comm_time = self.exe._num_minibatches * num_bw_pp_p2ps * chunk_bw_pp_time
 
     # Aggregrates metrics
     self._tp_comm_time = tp_fw_comm_time + tp_bw_comm_time
@@ -1108,7 +1114,7 @@ class Megatron: # stems from class (ParaGraph)
       self.get_fw_offload_time() - self._baseblock_fw_time)
     edgeblock_overhead = max(0,
       self.get_fw_offload_time() - self._edgeblock_fw_time)
-    full_overhead = self._num_minibatches * self._chunks_per_proc * (
+    full_overhead = self.exe._num_minibatches * self._chunks_per_proc * (
       (self._baseblocks_per_chunk * baseblock_overhead) +
       (self._edgeblocks_per_chunk * edgeblock_overhead))
     return full_overhead
@@ -1133,7 +1139,7 @@ class Megatron: # stems from class (ParaGraph)
         self.get_bw_offload_time() - self._baseblock_bw_time)
       edgeblock_overhead = max(0,
         self.get_bw_offload_time() - self._edgeblock_bw_time)
-      full_overhead = self._num_minibatches * self._chunks_per_proc * (
+      full_overhead = self.exe._num_minibatches * self._chunks_per_proc * (
         (self._baseblocks_per_chunk * baseblock_overhead) +
         (self._edgeblocks_per_chunk * edgeblock_overhead))
       return full_overhead
@@ -1185,7 +1191,7 @@ class Megatron: # stems from class (ParaGraph)
   def get_compute_efficiency(self):
     total_flops = self.get_useful_flops()
     compute_time = self.get_fw_time() + self.get_bw_time()
-    perfect_time = self._blocks_per_proc * self._num_minibatches * \
+    perfect_time = self._blocks_per_proc * self.exe._num_minibatches * \
       total_flops / self.sys.matrix_flops
     return perfect_time / compute_time
 
@@ -1195,7 +1201,7 @@ class Megatron: # stems from class (ParaGraph)
 
   def get_total_efficiency(self):
     total_flops = self.get_useful_flops()
-    perfect_time = self._blocks_per_proc * self._num_minibatches * \
+    perfect_time = self._blocks_per_proc * self.exe._num_minibatches * \
       total_flops / self.sys.matrix_flops
     return perfect_time / self.get_total_time()
 
