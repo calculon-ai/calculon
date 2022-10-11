@@ -994,6 +994,7 @@ class Megatron: # stems from class (ParaGraph)
     if self.exe.activation_recompute == "full":
       assert self._block_act_space == self._block_recompute_mem_saving, \
         "We expect with full act recomputation we recompute ALL activations"
+      self._act_space = self._block_act_space
     else:
       # with partial activation recomputation we need to reclaim memory
       if self.exe.activation_recompute == "partial":
@@ -1041,6 +1042,8 @@ class Megatron: # stems from class (ParaGraph)
       assert self.get_pp_comm_time() == 0
     if self.exe.data_par == 1:
       assert self.get_dp_comm_time() == 0
+
+    assert self._act_space >= self._block_act_space
 
   def run(self, sys):
     assert self._compiled, "You must first call self.compile()"
