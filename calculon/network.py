@@ -20,6 +20,7 @@ class Network:
   """Configuration for a network."""
 
   kNetOps = set(['p2p', 'reduce_scatter', 'all_gather', 'all_reduce'])
+  kCollectives = set(['reduce_scatter', 'all_gather', 'all_reduce'])
 
   @staticmethod
   def _valid_op(op, eff):
@@ -33,16 +34,19 @@ class Network:
     return valid
 
   def __init__(self, cfg):
-    assert set(['bw', 'eff', 'size', 'ops']) == set(cfg.keys())
-    self._bw = cfg['bw'] * 1e9  # Specified in GB/s
+    assert set(['bandwidth', 'efficiency', 'size', 'ops',
+                'collective_minus1_scalar']) == set(cfg.keys())
+    self._bw = cfg['bandwidth'] * 1e9  # Specified in GB/s
     assert self._bw > 0
-    self._eff = cfg['eff']
+    self._eff = cfg['efficiency']
     assert 0 < self._eff <= 1.0
     self._size = cfg['size']
     assert self._size >= 0
     self._ops = cfg['ops']
     assert all(Network._valid_op(k, v) for k, v in self._ops.items())
     assert set(self._ops.keys()) == Network.kNetOps
+    self._col_m1_scalar = cfg['collective_minus1_scalar']
+    assert isinstance(self._col_m1_scalar, bool)
 
     # TODO(nicmcd): support reduction algorithms with (n-1)/n overhead scaling
 
@@ -64,7 +68,9 @@ class Network:
     if op == 'p2p':
       assert comm_size == 2
     else:
-      assert comm_size > 1
+      assert comm_size >= 2
     assert op in Network.kNetOps
     assert op_size >= 0
+    if self._col_m1_scalar and op in Network.kCollectives:
+      op_size *= ((comm_size - 1) / comm_size)
     return op_size / (self._bw * self._eff * self._ops[op])
