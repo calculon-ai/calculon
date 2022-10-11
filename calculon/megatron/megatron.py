@@ -29,7 +29,6 @@ class Megatron: # stems from class (ParaGraph)
   3. Run on particular hardware system
   """
 
-  # TODO move wherever appropriate, e.g. some config class
   _types_size_dict = {
     'float8'    : 1,
     'float16'   : 2,
@@ -1074,8 +1073,8 @@ class Megatron: # stems from class (ParaGraph)
     self._compute_batch_stats()
     self._check_mem_caps()
     self._misc_sanity_checks()
-    # TODO def _compute_offload_requirements(self):
-    # TODO incorporate 'weight_offload' and 'activations_offload'/'optimizer_offload'
+    # TODO(misaev): def _compute_offload_requirements(self):
+    # TODO(misaev): incorporate 'weight_offload' and 'activations_offload'/'optimizer_offload'
     self._executed = True
 
   def _get_fw_offload_size(self):
