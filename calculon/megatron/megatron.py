@@ -1115,11 +1115,15 @@ class Megatron: # stems from class (ParaGraph)
 
   def _check_mem_caps(self):
     if self.get_mem_tier1_cap_req() > self.sys.mem_tier1_cap:
-      raise self.Error(f'Mem tier1 needs {self.get_mem_tier1_cap_req()} '
-                       f'but only has {self.sys.mem_tier1_cap}')
+      raise self.Error(f'Mem tier1 needs '
+                       f'{human_format(self.get_mem_tier1_cap_req(), "bytes")} '
+                       f'but only has '
+                       f'{human_format(self.sys.mem_tier1_cap, "bytes")}')
     if self.get_mem_tier2_cap_req() > self.sys.mem_tier2_cap:
-      raise self.Error(f'Mem tier2 needs {self.get_mem_tier2_cap_req()} '
-                       f'but only has {self.sys.mem_tier2_cap}')
+      raise self.Error(f'Mem tier2 needs '
+                       f'{human_format(self.get_mem_tier2_cap_req(), "bytes")} '
+                       f'but only has '
+                       f'{human_format(self.sys.mem_tier2_cap, "bytes")}')
 
   def _misc_sanity_checks(self):
     if self.exe.tensor_par == 1:
