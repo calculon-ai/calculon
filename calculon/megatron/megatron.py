@@ -180,85 +180,93 @@ class Megatron: # stems from class (ParaGraph)
     # processor in the pipeline. Each chunk is modeled as a base
     # block that is repeated N-1 times and followed by 1 edge block.
     # Recommunication time is the same in both base and edge blocks.
-    self._blocks_per_proc = 0
-    self._bubble_reduction_blocks = 0
-    self._blocks_per_chunk = 0
-    self._chunks_per_proc = 0
-    self._baseblocks_per_chunk = 0
-    self._edgeblocks_per_chunk = 0
+    self._blocks_per_proc = None
+    self._bubble_reduction_blocks = None
+    self._blocks_per_chunk = None
+    self._chunks_per_proc = None
+    self._baseblocks_per_chunk = None
+    self._edgeblocks_per_chunk = None
+
+    # Misc compilation values
+    self._bytes_per_element = None
+    self._batch_seq = None
+    self._batch_seq_par = None
+    self._activation_size = None
+    self._seq_par_activation_size = None
 
     # HW parameters to populate during run
     # TODO(nicmcd): this should be calculated on the fly by the system class
-    self.vector_throughput = 0
-    self.matrix_throughput = 0
-    self.mem_throughput = 0
-    self.offload_throughput = 0
+    self.vector_throughput = None
+    self.matrix_throughput = None
+    self.mem_throughput = None
+    self.offload_throughput = None
 
     # Assignments to specific networks
-    self._tp_net_tier = 0
-    self._tp_net = 0
-    self._dp_net_tier = 0
-    self._dp_net = 0
-    self._pp_net_tier = 0
-    self._pp_net = 0
+    self._tp_net_tier = None
+    self._tp_net = None
+    self._dp_net_tier = None
+    self._dp_net = None
+    self._pp_net_tier = None
+    self._pp_net = None
 
     # metrics collected after run for each minibatch
-    self._block_fw_flops = 0
-    self._block_fw_flops_time = 0
-    self._block_fw_mem_accessed = 0
-    self._block_fw_mem_time = 0
-    self._block_bw_flops = 0
-    self._block_bw_flops_time = 0
-    self._block_bw_mem_accessed = 0
-    self._block_bw_mem_time = 0
-    self._block_recompute_mem_saving = 0
-    self._block_recompute_time = 0
+    self._block_fw_flops = None
+    self._block_fw_flops_time = None
+    self._block_fw_mem_accessed = None
+    self._block_fw_mem_time = None
+    self._block_bw_flops = None
+    self._block_bw_flops_time = None
+    self._block_bw_mem_accessed = None
+    self._block_bw_mem_time = None
+    self._block_recompute_mem_saving = None
+    self._block_recompute_time = None
 
-    self._block_fw_tp_size = 0
-    self._block_bw_tp_size = 0
-    self._block_recomm_size = 0
-    self._block_fw_pp_size = 0
-    self._block_bw_pp_size = 0
-    self._block_dp_size = 0
-    self._baseblock_fw_time = 0
-    self._edgeblock_fw_time = 0
-    self._baseblock_bw_time = 0
-    self._edgeblock_bw_time = 0
-    self._block_dp_time = 0
+    self._block_tp_comm_count = None
+    self._block_fw_tp_size = None
+    self._block_bw_tp_size = None
+    self._block_recomm_size = None
+    self._block_fw_pp_size = None
+    self._block_bw_pp_size = None
+    self._block_dp_size = None
+    self._baseblock_fw_time = None
+    self._edgeblock_fw_time = None
+    self._baseblock_bw_time = None
+    self._edgeblock_bw_time = None
+    self._block_dp_time = None
 
-    self._block_weight_space = 0
-    self._block_act_space = 0
-    self._block_act_checkpoint_size = 0
-    self._block_weight_grad_space = 0
-    self._block_weight_grad_space_no_sharding = 0
-    self._block_act_grad_space = 0
-    self._block_optimizer_space = 0
+    self._block_weight_space = None
+    self._block_act_space = None
+    self._block_act_checkpoint_size = None
+    self._block_weight_grad_space = None
+    self._block_weight_grad_space_no_sharding = None
+    self._block_act_grad_space = None
+    self._block_optimizer_space = None
 
     # Top level memory usage stats
-    self._weight_space = 0
-    self._act_space = 0
-    self._act_checkpoint_size = 0
-    self._weight_grad_space = 0
-    self._act_grad_space = 0
-    self._optimizer_space = 0
+    self._weight_space = None
+    self._act_space = None
+    self._act_checkpoint_size = None
+    self._weight_grad_space = None
+    self._act_grad_space = None
+    self._optimizer_space = None
 
     # Top level throughput stats
-    self._fw_flops = 0
-    self._fw_flops_time = 0
-    self._fw_mem_accessed = 0
-    self._fw_mem_time = 0
-    self._bw_flops = 0
-    self._bw_flops_time = 0
-    self._bw_mem_accessed = 0
-    self._bw_mem_time = 0
-    self._recompute_time = 0
+    self._fw_flops = None
+    self._fw_flops_time = None
+    self._fw_mem_accessed = None
+    self._fw_mem_time = None
+    self._bw_flops = None
+    self._bw_flops_time = None
+    self._bw_mem_accessed = None
+    self._bw_mem_time = None
+    self._recompute_time = None
 
     # Top level network stats
-    self._tp_comm_time = 0
-    self._recomm_time = 0
-    self._pp_comm_time = 0
-    self._dp_comm_time = 0
-    self._bubble_time = 0
+    self._tp_comm_time = None
+    self._recomm_time = None
+    self._pp_comm_time = None
+    self._dp_comm_time = None
+    self._bubble_time = None
 
   def get_json(self):
     assert self._executed
@@ -336,7 +344,7 @@ class Megatron: # stems from class (ParaGraph)
       f"We should split hidden={self.app.hidden} between"
       f" {self.exe.tensor_par} TP partitions evenly")
     assert self.app.attn_heads % self.exe.tensor_par == 0, (
-      f"We should split {attn_heads} attn_heads between"
+      f"We should split {self.app.attn_heads} attn_heads between"
       f" {self.exe.tensor_par} TP partitions evenly")
     if self.exe._sequence_par:
       assert self.app.hidden % self.app.attn_heads == 0, (
@@ -345,13 +353,13 @@ class Megatron: # stems from class (ParaGraph)
 
     self._megatron_block.append(LayerNorm(
       "AttnBlock_LayerNorm",
-      pick(self.exe._sequence_par, self.seq_par_activation_size,
-           self.activation_size),
+      pick(self.exe._sequence_par, self._seq_par_activation_size,
+           self._activation_size),
       self.app.hidden,
       needs_recompute=recompute_flag))
     self._megatron_block.append(TPComm(
       "AttnBlock_F",
-      self.activation_size,
+      self._activation_size,
       self.exe.tensor_par,
       # We only compute flops/mem analyzing this layers, comm analyzed later
       # This is conservative estimate that does not consider p2p_rs_ag
@@ -362,56 +370,56 @@ class Megatron: # stems from class (ParaGraph)
       needs_recompute=recompute_flag))
     self._megatron_block.append(Fork(
       "AttnBlock_Fork",
-      self.activation_size, 3))
+      self._activation_size, 3))
     self._megatron_block.append(Linear(
       "AttnBlock_Key",
-      self.batch_seq,
+      self._batch_seq,
       self.app.hidden,
       self.app.hidden // self.exe.tensor_par,
       needs_recompute=recompute_flag))
     self._megatron_block.append(Linear(
       "AttnBlock_Query",
-      self.batch_seq,
+      self._batch_seq,
       self.app.hidden,
       self.app.hidden // self.exe.tensor_par,
       needs_recompute=recompute_flag))
     self._megatron_block.append(Linear(
       "AttnBlock_Value",
-      self.batch_seq,
+      self._batch_seq,
       self.app.hidden,
       self.app.hidden // self.exe.tensor_par,
       needs_recompute=recompute_flag))
     self._megatron_block.append(BatchMatMul(
       "AttnBlock_Multihead_Key_Query",
       self.app.attn_heads // self.exe.tensor_par,
-      self.batch_seq,
+      self._batch_seq,
       self.app.hidden // self.app.attn_heads,
-      self.batch_seq,
+      self._batch_seq,
       needs_recompute=recompute_attn_flag))
     self._megatron_block.append(SoftMax(
       "AttnBlock_Multihead_SoftMax",
-      self.app.attn_heads // self.exe.tensor_par * self.batch_seq**2,
+      self.app.attn_heads // self.exe.tensor_par * self._batch_seq**2,
       needs_recompute=recompute_attn_flag))
     self._megatron_block.append(DropOut(
       "AttnBlock_Multihead_DropOut",
-      self.app.attn_heads // self.exe.tensor_par * self.batch_seq**2,
+      self.app.attn_heads // self.exe.tensor_par * self._batch_seq**2,
       needs_recompute=recompute_attn_flag))
     self._megatron_block.append(BatchMatMul(
       "AttnBlock_Multihead_Attn",
       self.app.attn_heads // self.exe.tensor_par,
-      self.batch_seq,
-      self.batch_seq,
+      self._batch_seq,
+      self._batch_seq,
       self.app.hidden // self.app.attn_heads,
       needs_recompute=recompute_attn_flag))
     self._megatron_block.append(Linear(
       "AttnBlock_MLP",
-      self.batch_seq,
+      self._batch_seq,
       self.app.hidden // self.exe.tensor_par,
       self.app.hidden,
       needs_recompute=recompute_flag))
     self._megatron_block.append(TPComm(
       "AttnBlock_G",
-      self.activation_size,
+      self._activation_size,
       self.exe.tensor_par,
       # We only compute flops/mem analyzing this layers, comm analyzed later
       # This is conservative estimate that does not consider p2p_rs_ag
@@ -423,15 +431,15 @@ class Megatron: # stems from class (ParaGraph)
 
     self._megatron_block.append(DropOut(
       "AttnBlock_DropOut",
-      pick(self.exe._sequence_par, self.seq_par_activation_size,
-           self.activation_size),
+      pick(self.exe._sequence_par, self._seq_par_activation_size,
+           self._activation_size),
       needs_recompute=recompute_flag))
     self._megatron_block.append(ElementWise(
       "AttnBlock_Residual",
-      pick(self.exe._sequence_par, self.seq_par_activation_size,
-           self.activation_size),
-      pick(self.exe._sequence_par, self.seq_par_activation_size,
-           self.activation_size),
+      pick(self.exe._sequence_par, self._seq_par_activation_size,
+           self._activation_size),
+      pick(self.exe._sequence_par, self._seq_par_activation_size,
+           self._activation_size),
       needs_recompute=recompute_flag))
 
   def _build_mlp_block(self):
@@ -439,13 +447,13 @@ class Megatron: # stems from class (ParaGraph)
 
     self._megatron_block.append(LayerNorm(
       "MlpBlock_LayerNorm",
-      pick(self.exe._sequence_par, self.seq_par_activation_size,
-           self.activation_size),
+      pick(self.exe._sequence_par, self._seq_par_activation_size,
+           self._activation_size),
       self.app.hidden,
       needs_recompute=recompute_flag))
     self._megatron_block.append(TPComm(
       "MlpBlock_F",
-      self.activation_size,
+      self._activation_size,
       self.exe.tensor_par,
       # We only compute flops/mem analyzing this layers, comm analyzed later
       # This is conservative estimate that does not consider p2p_rs_ag
@@ -456,23 +464,23 @@ class Megatron: # stems from class (ParaGraph)
       needs_recompute=recompute_flag))
     self._megatron_block.append(Linear(
       "MlpBlock_Mlp1",
-      self.batch_seq,
+      self._batch_seq,
       self.app.hidden,
       self.app.hidden * 4 // self.exe.tensor_par,
       needs_recompute=recompute_flag))
     self._megatron_block.append(GeLU(
       "MlpBlock_GeLU",
-      4 * self.activation_size // self.exe.tensor_par,
+      4 * self._activation_size // self.exe.tensor_par,
       needs_recompute=recompute_flag))
     self._megatron_block.append(Linear(
       "MlpBlock_Mlp2",
-      self.batch_seq,
+      self._batch_seq,
       self.app.hidden * 4 // self.exe.tensor_par,
       self.app.hidden,
       needs_recompute=recompute_flag))
     self._megatron_block.append(TPComm(
       "MlpBlock_G",
-      self.activation_size,
+      self._activation_size,
       self.exe.tensor_par,
       # We only compute flops/mem analyzing this layers, comm analyzed later
       # This is conservative estimate that does not consider p2p_rs_ag
@@ -484,15 +492,15 @@ class Megatron: # stems from class (ParaGraph)
 
     self._megatron_block.append(DropOut(
       "MlpBlock_DropOut",
-      pick(self.exe._sequence_par, self.seq_par_activation_size,
-           self.activation_size),
+      pick(self.exe._sequence_par, self._seq_par_activation_size,
+           self._activation_size),
       needs_recompute=recompute_flag))
     self._megatron_block.append(ElementWise(
       "MlpBlock_Residual",
-      pick(self.exe._sequence_par, self.seq_par_activation_size,
-           self.activation_size),
-      pick(self.exe._sequence_par, self.seq_par_activation_size,
-           self.activation_size),
+      pick(self.exe._sequence_par, self._seq_par_activation_size,
+           self._activation_size),
+      pick(self.exe._sequence_par, self._seq_par_activation_size,
+           self._activation_size),
       needs_recompute=recompute_flag))
 
   def compile(self, exe):
@@ -542,14 +550,14 @@ class Megatron: # stems from class (ParaGraph)
     self._edgeblocks_per_chunk = 1
 
     # Build model during the compilation step
-    self.batch_seq = self.exe.minibatch_size * self.app.seq_size
-    self.activation_size = self.batch_seq * self.app.hidden
-    self.batch_seq_par = self.batch_seq // self.exe.tensor_par
+    self._batch_seq = self.exe.minibatch_size * self.app.seq_size
+    self._activation_size = self._batch_seq * self.app.hidden
+    self._batch_seq_par = self._batch_seq // self.exe.tensor_par
     if self.exe._sequence_par or self.exe._pipeline_par_rs_ag:
-      assert self.batch_seq % self.exe.tensor_par == 0, (
-        f"We should split batch_seq={self.batch_seq} between"
+      assert self._batch_seq % self.exe.tensor_par == 0, (
+        f"We should split batch_seq={self._batch_seq} between"
         f" {self.exe.tensor_par} TP partitions evenly")
-    self.seq_par_activation_size = self.batch_seq_par * self.app.hidden
+    self._seq_par_activation_size = self._batch_seq_par * self.app.hidden
     self._build_attn_block()
     self._build_mlp_block()
     for layer in self._megatron_block:
@@ -629,12 +637,32 @@ class Megatron: # stems from class (ParaGraph)
     """
     if self.exe.training and self.exe.activation_recompute == "full":
       self._block_act_checkpoint_size = \
-        self.activation_size * self._bytes_per_element
+        self._activation_size * self._bytes_per_element
     else:
       self._block_act_checkpoint_size = 0
+
+    # Initializes values to zero for accumulation in layer loop
+    self._block_fw_flops = 0
+    self._block_fw_flops_time = 0
+    self._block_fw_mem_accessed = 0
+    self._block_fw_mem_time = 0
+    self._block_weight_space = 0
+    self._block_act_space = 0
+    if self.exe.training:
+      self._block_bw_flops = 0
+      self._block_bw_flops_time = 0
+      self._block_bw_mem_accessed = 0
+      self._block_bw_mem_time = 0
+      self._block_recompute_time = 0
+      self._block_recompute_mem_saving = 0
+      self._block_weight_grad_space = 0
+      self._block_weight_grad_space_no_sharding = 0
+      self._block_act_grad_space = 0
+      self._block_optimizer_space = 0
+
     for layer in self._megatron_block:
       # Determines which throughput will be used for this layer
-      if isinstance(layer, Linear) or isinstance(layer, BatchMatMul):
+      if isinstance(layer, (BatchMatMul, Linear)):
         flops_throughput = self.matrix_throughput
       else:
         flops_throughput = self.vector_throughput
@@ -742,26 +770,24 @@ class Megatron: # stems from class (ParaGraph)
     # Note: this is for a single operation but there are two F/G comm
     # instructions in each block.
     if self.exe.tensor_par > 1:
-      self._block_fw_tp_size = self.activation_size * self._bytes_per_element
+      self._block_fw_tp_size = self._activation_size * self._bytes_per_element
     else:
       self._block_fw_tp_size = 0
 
     # Sets the PP communication operation size
     if self.exe.pipeline_par > 1:
       if self.exe._pipeline_par_rs_ag:
-        self._block_fw_pp_size = self.seq_par_activation_size * \
+        self._block_fw_pp_size = self._seq_par_activation_size * \
           self._bytes_per_element
       else:
-        self._block_fw_pp_size = self.activation_size * \
+        self._block_fw_pp_size = self._activation_size * \
           self._bytes_per_element
     else:
       self._block_fw_pp_size = 0
 
     # Sets the recommunication operation size
     if self.exe.training and self.exe.activation_recompute == "full":
-      self.block_recomm_tp_size = self._block_fw_tp_size
-    else:
-      self.block_recomm_tp_size = 0
+      self._block_recomm_size = self._block_fw_tp_size
 
     # When training, BW sizes for TP and PP are same as FW
     if self.exe.training:
@@ -773,14 +799,15 @@ class Megatron: # stems from class (ParaGraph)
 
     self.log.debug("%s %s", 'TP comm FW size:',
       human_format(self._block_fw_tp_size, 'bytes'))
-    self.log.debug("%s %s", 'TP comm BW size:',
-      human_format(self._block_bw_tp_size, 'bytes'))
-    self.log.debug("%s %s", 'TP recomm size:',
-      human_format(self._block_recomm_size, 'bytes'))
     self.log.debug("%s %s", 'PP comm FW size:',
       human_format(self._block_fw_pp_size, 'bytes'))
+    self.log.debug("%s %s", 'TP comm BW size:',
+      human_format(self._block_bw_tp_size, 'bytes'))
     self.log.debug("%s %s", 'PP comm BW size:',
       human_format(self._block_bw_pp_size, 'bytes'))
+    self.log.debug("%s %s", 'TP recomm size:',
+      human_format(self._block_recomm_size, 'bytes'))
+
 
   def _compute_batch_stats(self):
     """

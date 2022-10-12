@@ -16,7 +16,6 @@
 """
 
 import json
-import logging
 
 import calculon
 from calculon.megatron import *
@@ -63,6 +62,7 @@ class Runner(calculon.CommandLine):
         json.dump(model.get_json(), fd, indent=2)
     else:
       assert False, f'unknown stats extension: {args.stats}'
+    return 0
 
 
 calculon.CommandLine.register(Runner)

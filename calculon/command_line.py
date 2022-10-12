@@ -15,6 +15,8 @@
  * limitations under the License.
 """
 
+import copy
+
 class CommandLine:
   """Defines the abstract interface definition for a command line interface.
   Inspired from: https://github.com/ssnetsim/ssplot/
@@ -29,7 +31,7 @@ class CommandLine:
     raise NotImplementedError('subclasses must override this')
 
   @staticmethod
-  def run_command(args):
+  def run_command(logger, args):
     """
     This function is used to run the command if it is chosen at the command
     line. This function should be registered to the parser in create_parser().

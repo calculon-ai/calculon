@@ -18,13 +18,16 @@ def human_format(value, v_type):
                       "or 'throughput', given {}".format(v_type)))
   labels = ['', 'k', 'M', 'G', 'T', 'P', 'E']
   index = 0
-  for l in labels:
-    if value >= step:
-      value /= step
-      index += 1
-    else:
-      break
-  return "{0:.2f} {1}{2}".format(value, labels[index], suffix)
+  if value != None:
+    for l in labels:
+      if value >= step:
+        value /= step
+        index += 1
+      else:
+        break
+    return "{0:.2f} {1}{2}".format(value, labels[index], suffix)
+  else:
+    return "n/a {1}{2}".format(value, labels[0], suffix)
 
 
 def pick(en, a, b):
