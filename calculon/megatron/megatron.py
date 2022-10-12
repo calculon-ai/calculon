@@ -50,6 +50,7 @@ class Megatron: # stems from class (ParaGraph)
     """Specifies the execution configuration."""
     def __init__(self, cfg):
       self.cfg = cfg
+      self.training = cfg['training']
       self.num_procs = cfg['num_procs']
       assert self.num_procs > 0
       self.tensor_par = cfg['tensor_par']
@@ -71,6 +72,8 @@ class Megatron: # stems from class (ParaGraph)
       self.datatype = cfg['datatype']
       self.activation_recompute = cfg['activation_recompute']
       assert self.activation_recompute in ['full', 'partial', 'none']
+      if self.activation_recompute in ['full', 'partial']:
+        assert self.training, "We only perform recompute during training"
       self.pipeline_interleaving = cfg['pipeline_interleaving']
       assert self.pipeline_interleaving > 0, \
         f'Bad pipeline interleaving of {self.pipeline_interleaving}'
@@ -78,18 +81,26 @@ class Megatron: # stems from class (ParaGraph)
         assert self.pipeline_interleaving == 1, \
         f'Bad pipeline interleaving of {self.pipeline_interleaving} with PP=1'
       self.optimizer_sharding = cfg['optimizer_sharding']
+      if self.optimizer_sharding:
+        assert self.data_par > 1, "We perform optimizer sharding with DP > 1"
       self.tensor_par_comm_type = cfg['tensor_par_comm_type']
       self.in_network_reduction = False
       assert self.tensor_par_comm_type in ['ar', 'p2p_rs_ag', 'rs_ag']
       self._sequence_par = self.tensor_par_comm_type == 'rs_ag'
-      self._pipeline_par_rs_ag = self.tensor_par_comm_type in ['p2p_rs_ag', 'rs_ag']
+      self._pipeline_par_rs_ag = \
+        self.tensor_par_comm_type in ['p2p_rs_ag', 'rs_ag']
       self.data_par_overlap = cfg['data_par_overlap']
+      if self.data_par_overlap:
+        assert self.training, "We only perform DP comm overlap during training"
+        assert self.data_par > 1, "We perform DP comm overlap with DP > 1"
       self.weight_offload = cfg['weight_offload']
       self.activations_offload = cfg['activations_offload']
       if self.activation_recompute == 'full':
         assert not self.activations_offload
       self.optimizer_offload = cfg['optimizer_offload']
-      self.training = cfg['training']
+      if self.optimizer_offload:
+        assert self.training, \
+          "We only perform optimizer offloading during training"
       if self.activations_offload:
         assert self.activation_recompute != 'full'
 
@@ -321,9 +332,16 @@ class Megatron: # stems from class (ParaGraph)
     recompute_flag = self.exe.activation_recompute == "full"
     recompute_attn_flag = self.exe.activation_recompute in ["full", "partial"]
 
-    # TODO(misaev): make sure all "/" operators in these two "build" functions
-    # are intended to be floating point results. If not use "//" instead and
-    # precede them with an assert that the input sizes equally divide.
+    assert self.app.hidden % self.exe.tensor_par == 0, (
+      f"We should split hidden={self.app.hidden} between"
+      f" {self.exe.tensor_par} TP partitions evenly")
+    assert self.app.attn_heads % self.exe.tensor_par == 0, (
+      f"We should split {attn_heads} attn_heads between"
+      f" {self.exe.tensor_par} TP partitions evenly")
+    if self.exe._sequence_par:
+      assert self.app.hidden % self.app.attn_heads == 0, (
+        f"We should split hidden={self.app.hidden} between"
+        f" {self.app.attn_heads} attn_heads evenly")
 
     self._megatron_block.append(LayerNorm(
       "AttnBlock_LayerNorm",
@@ -349,46 +367,46 @@ class Megatron: # stems from class (ParaGraph)
       "AttnBlock_Key",
       self.batch_seq,
       self.app.hidden,
-      self.app.hidden / self.exe.tensor_par,
+      self.app.hidden // self.exe.tensor_par,
       needs_recompute=recompute_flag))
     self._megatron_block.append(Linear(
       "AttnBlock_Query",
       self.batch_seq,
       self.app.hidden,
-      self.app.hidden / self.exe.tensor_par,
+      self.app.hidden // self.exe.tensor_par,
       needs_recompute=recompute_flag))
     self._megatron_block.append(Linear(
       "AttnBlock_Value",
       self.batch_seq,
       self.app.hidden,
-      self.app.hidden / self.exe.tensor_par,
+      self.app.hidden // self.exe.tensor_par,
       needs_recompute=recompute_flag))
     self._megatron_block.append(BatchMatMul(
       "AttnBlock_Multihead_Key_Query",
-      self.app.attn_heads / self.exe.tensor_par,
+      self.app.attn_heads // self.exe.tensor_par,
       self.batch_seq,
-      self.app.hidden / self.app.attn_heads,
+      self.app.hidden // self.app.attn_heads,
       self.batch_seq,
       needs_recompute=recompute_attn_flag))
     self._megatron_block.append(SoftMax(
       "AttnBlock_Multihead_SoftMax",
-      self.app.attn_heads / self.exe.tensor_par * self.batch_seq**2,
+      self.app.attn_heads // self.exe.tensor_par * self.batch_seq**2,
       needs_recompute=recompute_attn_flag))
     self._megatron_block.append(DropOut(
       "AttnBlock_Multihead_DropOut",
-      self.app.attn_heads / self.exe.tensor_par * self.batch_seq**2,
+      self.app.attn_heads // self.exe.tensor_par * self.batch_seq**2,
       needs_recompute=recompute_attn_flag))
     self._megatron_block.append(BatchMatMul(
       "AttnBlock_Multihead_Attn",
-      self.app.attn_heads / self.exe.tensor_par,
+      self.app.attn_heads // self.exe.tensor_par,
       self.batch_seq,
       self.batch_seq,
-      self.app.hidden / self.app.attn_heads,
+      self.app.hidden // self.app.attn_heads,
       needs_recompute=recompute_attn_flag))
     self._megatron_block.append(Linear(
       "AttnBlock_MLP",
       self.batch_seq,
-      self.app.hidden / self.exe.tensor_par,
+      self.app.hidden // self.exe.tensor_par,
       self.app.hidden,
       needs_recompute=recompute_flag))
     self._megatron_block.append(TPComm(
@@ -440,16 +458,16 @@ class Megatron: # stems from class (ParaGraph)
       "MlpBlock_Mlp1",
       self.batch_seq,
       self.app.hidden,
-      self.app.hidden * 4 / self.exe.tensor_par,
+      self.app.hidden * 4 // self.exe.tensor_par,
       needs_recompute=recompute_flag))
     self._megatron_block.append(GeLU(
       "MlpBlock_GeLU",
-      4 * self.activation_size / self.exe.tensor_par,
+      4 * self.activation_size // self.exe.tensor_par,
       needs_recompute=recompute_flag))
     self._megatron_block.append(Linear(
       "MlpBlock_Mlp2",
       self.batch_seq,
-      self.app.hidden * 4 / self.exe.tensor_par,
+      self.app.hidden * 4 // self.exe.tensor_par,
       self.app.hidden,
       needs_recompute=recompute_flag))
     self._megatron_block.append(TPComm(
@@ -526,7 +544,11 @@ class Megatron: # stems from class (ParaGraph)
     # Build model during the compilation step
     self.batch_seq = self.exe.minibatch_size * self.app.seq_size
     self.activation_size = self.batch_seq * self.app.hidden
-    self.batch_seq_par = self.batch_seq / self.exe.tensor_par
+    self.batch_seq_par = self.batch_seq // self.exe.tensor_par
+    if self.exe._sequence_par or self.exe._pipeline_par_rs_ag:
+      assert self.batch_seq % self.exe.tensor_par == 0, (
+        f"We should split batch_seq={self.batch_seq} between"
+        f" {self.exe.tensor_par} TP partitions evenly")
     self.seq_par_activation_size = self.batch_seq_par * self.app.hidden
     self._build_attn_block()
     self._build_mlp_block()
@@ -624,26 +646,28 @@ class Megatron: # stems from class (ParaGraph)
       self._block_fw_mem_accessed += layer.get_fw_mem_accessed()
       self._block_fw_mem_time += \
         layer.get_fw_mem_accessed() / self.mem_throughput
-      self._block_bw_flops += layer.get_bw_flops()
-      self._block_bw_flops_time += \
-        layer.get_bw_flops() / flops_throughput
-      self._block_bw_mem_accessed += layer.get_bw_mem_accessed()
-      self._block_bw_mem_time += \
-        layer.get_bw_mem_accessed() / self.mem_throughput
-      self._block_recompute_time += layer.get_recompute_flag() * (
-        layer.get_fw_flops() / flops_throughput + \
-        layer.get_fw_mem_accessed() / self.mem_throughput)
-      self._block_recompute_mem_saving += layer.get_recompute_flag() * (
-        layer.get_activation())
+      if self.exe.training:
+        self._block_bw_flops += layer.get_bw_flops()
+        self._block_bw_flops_time += \
+          layer.get_bw_flops() / flops_throughput
+        self._block_bw_mem_accessed += layer.get_bw_mem_accessed()
+        self._block_bw_mem_time += \
+          layer.get_bw_mem_accessed() / self.mem_throughput
+        self._block_recompute_time += layer.get_recompute_flag() * (
+          layer.get_fw_flops() / flops_throughput + \
+          layer.get_fw_mem_accessed() / self.mem_throughput)
+        self._block_recompute_mem_saving += layer.get_recompute_flag() * (
+          layer.get_activation())
 
       # Accumulate space requirements per block
       self._block_weight_space += layer.get_weight()
       self._block_act_space += layer.get_activation()
-      self._block_weight_grad_space += layer.get_weight_grad()
-      self._block_weight_grad_space_no_sharding += layer.get_weight_grad(
-        sharded=False)
-      self._block_act_grad_space += layer.get_activation_grad()
-      self._block_optimizer_space += layer.get_optimizer()
+      if self.exe.training:
+        self._block_weight_grad_space += layer.get_weight_grad()
+        self._block_weight_grad_space_no_sharding += layer.get_weight_grad(
+          sharded=False)
+        self._block_act_grad_space += layer.get_activation_grad()
+        self._block_optimizer_space += layer.get_optimizer()
 
       self.log.debug("%s %s %s", layer.name, 'FW flops:',
         human_format(layer.get_fw_flops(), 'flops'))
@@ -734,7 +758,7 @@ class Megatron: # stems from class (ParaGraph)
       self._block_fw_pp_size = 0
 
     # Sets the recommunication operation size
-    if self.exe.activation_recompute == "full":
+    if self.exe.training and self.exe.activation_recompute == "full":
       self.block_recomm_tp_size = self._block_fw_tp_size
     else:
       self.block_recomm_tp_size = 0
@@ -769,18 +793,26 @@ class Megatron: # stems from class (ParaGraph)
     self._fw_flops_time = mult * self._block_fw_flops_time
     self._fw_mem_accessed = mult * self._block_fw_mem_accessed
     self._fw_mem_time = mult * self._block_fw_mem_time
-    self._bw_flops = mult * self._block_bw_flops
-    self._bw_flops_time = mult * self._block_bw_flops_time
-    self._bw_mem_accessed = mult * self._block_bw_mem_accessed
-    self._bw_mem_time = mult * self._block_bw_mem_time
-    self._recompute_time = mult * self._block_recompute_time
+    if self.exe.training:
+      self._bw_flops = mult * self._block_bw_flops
+      self._bw_flops_time = mult * self._block_bw_flops_time
+      self._bw_mem_accessed = mult * self._block_bw_mem_accessed
+      self._bw_mem_time = mult * self._block_bw_mem_time
+      self._recompute_time = mult * self._block_recompute_time
+    else:
+      self._bw_flops = 0
+      self._bw_flops_time = 0
+      self._bw_mem_accessed = 0
+      self._bw_mem_time = 0
+      self._recompute_time = 0
 
     # Recommunication is caused by activation recomputation in
     # "full" mode. It is always 2 AllReduce operations
     # We consider full activation recomputation to start with the full
     # activation checkpoint  (not distributed across TP nodes)
     # TODO(misaev): think if we want to introduce split_act_cp optimization
-    if self.exe.tensor_par > 1 and self.exe.activation_recompute == 'full':
+    if self.exe.training and self.exe.tensor_par > 1 and \
+      self.exe.activation_recompute == 'full':
       block_recomm_time = self._block_tp_comm_count * self._tp_net.time(
         'all_reduce', self._block_recomm_size, self.exe.tensor_par)
     else:
@@ -936,7 +968,7 @@ class Megatron: # stems from class (ParaGraph)
     else:
       extra_interleaving_bubbles = 0
     self._bubble_time = chunks_in_bubble * chunk_time - \
-      bubble_reduction_time + extra_interleaving_bubbles
+      bubble_reduction_time + extra_interleaving_bubbles * chunk_time
 
     self.log.debug("%s %s", 'Block FW flops time:',
       self._block_fw_flops_time)
@@ -954,7 +986,7 @@ class Megatron: # stems from class (ParaGraph)
 
     # Determines how long it takes to perform the DP per block
     # This assumes no DP communication overlap (will be adjusted later).
-    if self.exe.data_par > 1:
+    if self.exe.data_par > 1 and self.exe.training:
       self._block_dp_size = self._block_weight_space
       if self.exe.optimizer_sharding:
         # When performing optimizer sharding, the communication time is a
@@ -1021,41 +1053,50 @@ class Megatron: # stems from class (ParaGraph)
     # account for activation recomputation
     # for full recompute we keep single block's activations
     # (no scaling by L/gpu)
-    if self.exe.activation_recompute == "full":
-      assert self._block_act_space == self._block_recompute_mem_saving, \
-        "We expect with full act recomputation we recompute ALL activations"
-      self._act_space = self._block_act_space
-    else:
-      # with partial activation recomputation we need to reclaim memory
-      if self.exe.activation_recompute == "partial":
-        self._block_act_space -= self._block_recompute_mem_saving
-      # Without full recompute, we keep activations for all blocks on the GPU
-      self._act_space = self._block_act_space * self._blocks_per_proc
-      # Keep activations for all pipeline stages for PP
-      if self.exe.pipeline_interleaving > 1:
-        self._act_space *= self.exe.pipeline_par * (
-          1 + (self.exe.pipeline_par - 1) / (self.exe.pipeline_interleaving *
-                                             self.exe.pipeline_par))
+    if self.exe.training:
+      if self.exe.activation_recompute == "full":
+        assert self._block_act_space == self._block_recompute_mem_saving, \
+          "We expect with full act recomputation we recompute ALL activations"
+        self._act_space = self._block_act_space
       else:
-        assert self.exe.pipeline_interleaving == 1
-        self._act_space *= self.exe.pipeline_par
-    self._act_checkpoint_size = self._blocks_per_proc * \
-      self._block_act_checkpoint_size
-    # Only need activation grads for a single block
-    self._act_grad_space = self._block_act_grad_space
+        # with partial activation recomputation we need to reclaim memory
+        if self.exe.activation_recompute == "partial":
+          self._block_act_space -= self._block_recompute_mem_saving
+        # Without full recompute, we keep activations for all blocks on the GPU
+        self._act_space = self._block_act_space * self._blocks_per_proc
+        # Keep activations for all pipeline stages for PP
+        if self.exe.pipeline_interleaving > 1:
+          self._act_space *= self.exe.pipeline_par * (
+            1 + (self.exe.pipeline_par - 1) / (self.exe.pipeline_interleaving *
+                                               self.exe.pipeline_par))
+        else:
+          assert self.exe.pipeline_interleaving == 1
+          self._act_space *= self.exe.pipeline_par
+      self._act_checkpoint_size = self._blocks_per_proc * \
+        self._block_act_checkpoint_size
+      # Only need activation grads for a single block
+      self._act_grad_space = self._block_act_grad_space
+    else:
+      self._act_space = self._block_act_space
+      self._act_checkpoint_size = 0
+      self._act_grad_space = 0
 
     # Optimizer split  already accounted for during block compilation
     # We should keep non-sharded weight grad for a current block for AllReduce
     # and one that we currently compute, so 2x total
     # We only need a single no sharded weight grad copy for before reduction
-    if self._blocks_per_proc == 1:
-      self._weight_grad_space = self._block_weight_grad_space_no_sharding
+    if self.exe.training:
+      if self._blocks_per_proc == 1:
+        self._weight_grad_space = self._block_weight_grad_space_no_sharding
+      else:
+        self._weight_grad_space = \
+          self._block_weight_grad_space_no_sharding + \
+          self._block_weight_grad_space * (self._blocks_per_proc - 1)
+      self._optimizer_space = \
+        self._block_optimizer_space * self._blocks_per_proc
     else:
-      self._weight_grad_space = \
-        self._block_weight_grad_space_no_sharding + \
-        self._block_weight_grad_space * (self._blocks_per_proc - 1)
-    self._optimizer_space = \
-      self._block_optimizer_space * self._blocks_per_proc
+      self._weight_grad_space = 0
+      self._optimizer_space = 0
 
   def _check_mem_caps(self):
     if self.get_mem_tier1_cap_req() > self.sys.mem_tier1_cap:
@@ -1209,10 +1250,16 @@ class Megatron: # stems from class (ParaGraph)
     return self._pp_comm_time
 
   def get_dp_comm_time(self):
-    return self._dp_comm_time
+    if self.exe.training:
+      return self._dp_comm_time
+    else:
+      return 0
 
   def get_dp_comm_net_time(self):
-    return self._blocks_per_proc * self._block_dp_time
+    if self.exe.training:
+      return self._blocks_per_proc * self._block_dp_time
+    else:
+      return 0
 
   def get_total_time(self):
     time = self.get_fw_time()
@@ -1268,13 +1315,22 @@ class Megatron: # stems from class (ParaGraph)
       return 0
 
   def get_weight_grad_space(self):
-    return self._weight_grad_space
+    if self.exe.training:
+      return self._weight_grad_space
+    else:
+      return 0
 
   def get_act_grad_space(self):
-    return self._act_grad_space
+    if self.exe.training:
+      return self._act_grad_space
+    else:
+      return 0
 
   def get_optimizer_space(self):
-    return self._optimizer_space
+    if self.exe.training:
+      return self._optimizer_space
+    else:
+      return 0
 
   def _get_mem_cap_reqs(self):
     tier1 = 0
@@ -1324,30 +1380,36 @@ class Megatron: # stems from class (ParaGraph)
     # during FW and BW passes for blocks (i-1) / (i+1).
     # We always keep weights, they cannot be discarded
     offload_time = min(
-      self._baseblock_bw_time - self._block_bw_mem_time,
-      self._edgeblock_bw_time - self._block_bw_mem_time)
+      self._baseblock_fw_time - self._block_fw_mem_time,
+      self._edgeblock_fw_time - self._block_fw_mem_time)
     return self._block_weight_space / offload_time
 
   def get_optim_offload_bw_req(self):
     # We should be able to offload (write) weight grads and optimizer state
     # and prefetch (read) optimizer state during BW passes for blocks
     # (i-1) / (i+1).
-    offload_time = min(
-      self._baseblock_bw_time - self._block_bw_mem_time,
-      self._edgeblock_bw_time - self._block_bw_mem_time)
-    return (self._block_weight_grad_space + self._block_optimizer_space) / \
-      offload_time
+    if self.exe.training:
+      offload_time = min(
+        self._baseblock_bw_time - self._block_bw_mem_time,
+        self._edgeblock_bw_time - self._block_bw_mem_time)
+      return (self._block_weight_grad_space + self._block_optimizer_space) / \
+        offload_time
+    else:
+      return 0
 
   def get_offload_mem_bw_req(self):
     fw_offload_time = min(
       self._baseblock_fw_time - self._block_fw_mem_time,
       self._edgeblock_fw_time - self._block_fw_mem_time)
-    bw_offload_time = min(
-      self._baseblock_bw_time - self._block_bw_mem_time,
-      self._edgeblock_bw_time - self._block_bw_mem_time)
-    req_bw = max(self._get_fw_offload_size() / fw_offload_time,
-                 self._get_bw_offload_size() / bw_offload_time)
-    return req_bw
+    if self.exe.training:
+      bw_offload_time = min(
+        self._baseblock_bw_time - self._block_bw_mem_time,
+        self._edgeblock_bw_time - self._block_bw_mem_time)
+      req_bw = max(self._get_fw_offload_size() / fw_offload_time,
+                   self._get_bw_offload_size() / bw_offload_time)
+      return req_bw
+    else:
+      return self._get_fw_offload_size() / fw_offload_time
 
   def display_stats(self):
     stats = "=" * 80 + "\n"
