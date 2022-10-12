@@ -74,6 +74,9 @@ class Megatron: # stems from class (ParaGraph)
       self.pipeline_interleaving = cfg['pipeline_interleaving']
       assert self.pipeline_interleaving > 0, \
         f'Bad pipeline interleaving of {self.pipeline_interleaving}'
+      if self.pipeline_par == 1:
+        assert self.pipeline_interleaving == 1, \
+        f'Bad pipeline interleaving of {self.pipeline_interleaving} with PP=1'
       self.optimizer_sharding = cfg['optimizer_sharding']
       self.tensor_par_comm_type = cfg['tensor_par_comm_type']
       self.in_network_reduction = False
@@ -136,13 +139,13 @@ class Megatron: # stems from class (ParaGraph)
   def get_valid_minibatch_sizes(data_par, global_batch_size, pipeline_par):
     assert global_batch_size % data_par == 0
     local_batch_size = global_batch_size // data_par
-    # TODO(misaev): pipeline_par limitation to be removed
-    #yield from Megatron._factors(local_batch_size)
-    def is_ok(cand):
-      assert local_batch_size % cand == 0
-      num_minibatches = local_batch_size // cand
-      return num_minibatches >= pipeline_par
-    yield from Megatron._factors_with_check(local_batch_size, is_ok)
+    # TODO(nicmcd): Verify
+    yield from Megatron._factors(local_batch_size)
+    #def is_ok(cand):
+    #  assert local_batch_size % cand == 0
+    #  num_minibatches = local_batch_size // cand
+    #  return num_minibatches >= pipeline_par
+    #yield from Megatron._factors_with_check(local_batch_size, is_ok)
 
   def __init__(self, app, log):
     assert isinstance(app, self.Application)
@@ -166,6 +169,8 @@ class Megatron: # stems from class (ParaGraph)
     # processor in the pipeline. Each chunk is modeled as a base
     # block that is repeated N-1 times and followed by 1 edge block.
     # Recommunication time is the same in both base and edge blocks.
+    self._blocks_per_proc = 0
+    self._bubble_reduction_blocks = 0
     self._blocks_per_chunk = 0
     self._chunks_per_proc = 0
     self._baseblocks_per_chunk = 0
@@ -223,7 +228,6 @@ class Megatron: # stems from class (ParaGraph)
     self._act_space = 0
     self._act_checkpoint_size = 0
     self._weight_grad_space = 0
-    self._weight_grad_space_no_sharding = 0
     self._act_grad_space = 0
     self._optimizer_space = 0
 
@@ -478,15 +482,18 @@ class Megatron: # stems from class (ParaGraph)
     assert isinstance(exe, self.Execution)
     self.exe = exe
 
-    # TODO(misaev): this causes bubbles inside the chunk that we haven't
-    # accounted for.
-    assert self.exe._num_minibatches >= self.exe.pipeline_par, \
-      "Config not yet supported, please make num_minibatches >= pipeline_par"
-
-    if self.app.num_blocks % self.exe.pipeline_par != 0:
-      raise self.Error('Pipeline parallelism must evenly divide the number of '
-                       'blocks')
+    # If we have number of blocks not divisible by PP, we can allocate the
+    # reminder of the blocks on the first num_block % PP Procs and block
+    # "bubbles" on the last PP - (num_block % PP) Procs. To reflect that,
+    # we round up blocks_per_prock. We report time for Proc0. In that case
+    # its bubble time is `PP - (num_block % PP)` blocks shorter
     self._blocks_per_proc = self.app.num_blocks // self.exe.pipeline_par
+    if self.app.num_blocks % self.exe.pipeline_par != 0:
+      self._blocks_per_proc += 1
+      self._bubble_reduction_blocks = self.exe.pipeline_par - (
+        self.app.num_blocks % self.exe.pipeline_par)
+    else:
+      self._bubble_reduction_blocks = 0
     if self.exe.pipeline_interleaving > self._blocks_per_proc:
       raise self.Error('Pipeline interleaving must be less than or equal to '
                        'the number of blocks per processor')
@@ -499,8 +506,8 @@ class Megatron: # stems from class (ParaGraph)
     # performed
     if (self.exe.weight_offload or self.exe.activations_offload or
         self.exe.optimizer_offload) and (self._blocks_per_proc <= 2):
-      raise self.Error('Offloading requires each processor to handle at least 3'
-                       ' blocks')
+      raise self.Error('Offloading requires each processor to handle at least'
+                       ' 3 blocks')
 
     # A chunk is a set of blocks for minibatch before passing to the next
     # processor in the pipeline. Each chunk is modeled as a base
@@ -508,7 +515,8 @@ class Megatron: # stems from class (ParaGraph)
     # Recommunication time is the same in both base and edge blocks.
     self._blocks_per_chunk = \
       self._blocks_per_proc // self.exe.pipeline_interleaving
-    assert self._blocks_per_proc % self._blocks_per_chunk == 0
+    assert self._blocks_per_proc % self._blocks_per_chunk == 0, \
+      "PP interleaving should evenly devide {self._blocks_per_proc} blocks"
     self._chunks_per_proc = self._blocks_per_proc // self._blocks_per_chunk
     assert self._chunks_per_proc == self.exe.pipeline_interleaving, \
       "Number of chunks should be equal to pipeline_interleaving"
@@ -597,6 +605,11 @@ class Megatron: # stems from class (ParaGraph)
     tensor and pipeline parallelism cause different communication operations to
     occur at the full batch level, the communication times are computed later.
     """
+    if self.exe.training and self.exe.activation_recompute == "full":
+      self._block_act_checkpoint_size = \
+        self.activation_size * self._bytes_per_element
+    else:
+      self._block_act_checkpoint_size = 0
     for layer in self._megatron_block:
       # Determines which throughput will be used for this layer
       if isinstance(layer, Linear) or isinstance(layer, BatchMatMul):
@@ -626,10 +639,6 @@ class Megatron: # stems from class (ParaGraph)
       # Accumulate space requirements per block
       self._block_weight_space += layer.get_weight()
       self._block_act_space += layer.get_activation()
-      # TODO(misaev): why isn't this a += operator?
-      # It is just getting overwritten for each layer!
-      self._block_act_checkpoint_size = \
-        self.activation_size * self._bytes_per_element
       self._block_weight_grad_space += layer.get_weight_grad()
       self._block_weight_grad_space_no_sharding += layer.get_weight_grad(
         sharded=False)
@@ -913,8 +922,21 @@ class Megatron: # stems from class (ParaGraph)
       (self._baseblocks_per_chunk * self._baseblock_bw_time) +
       (self._edgeblocks_per_chunk * self._edgeblock_bw_time))
     chunk_time = chunk_fw_time + chunk_bw_time
+    # Block bubbles appear due to uneven devision of blocks by pipeline stages
+    # and result in the schedule bubble shorten by the missing edge blocks on
+    # the later pipeline stages
+    bubble_reduction_time = self._bubble_reduction_blocks * (
+      self._baseblock_bw_time + self._edgeblock_bw_time) / 2
     chunks_in_bubble = self.exe.pipeline_par - 1
-    self._bubble_time = chunks_in_bubble * chunk_time
+    # With PP interleaving we assume that we move through every chunk at least
+    # PP mini batches. If num_minibatches < PP, then we have extra bubbles
+    if self.exe._num_minibatches < self.exe.pipeline_par:
+      extra_interleaving_bubbles = chunks_in_bubble * (
+        self.exe.pipeline_par - self.exe._num_minibatches)
+    else:
+      extra_interleaving_bubbles = 0
+    self._bubble_time = chunks_in_bubble * chunk_time - \
+      bubble_reduction_time + extra_interleaving_bubbles
 
     self.log.debug("%s %s", 'Block FW flops time:',
       self._block_fw_flops_time)
@@ -1064,10 +1086,8 @@ class Megatron: # stems from class (ParaGraph)
     assert self._weight_space >= self._block_weight_space
     assert self._act_space >= self._block_act_space
     assert self._act_checkpoint_size >= self._block_act_checkpoint_size
-    assert self._weight_grad_space >= self._block_weight_grad_space
-    # TODO(misaev): fix this, it fails
-    #assert self._weight_grad_space_no_sharding >= self._block_weight_grad_space_no_sharding
-    assert self._act_grad_space >= self._block_act_grad_space
+    assert self._weight_grad_space >= self._block_weight_grad_space_no_sharding
+    assert self._act_grad_space == self._block_act_grad_space
     assert self._optimizer_space >= self._block_optimizer_space
 
     if not self.exe.training:
@@ -1080,17 +1100,16 @@ class Megatron: # stems from class (ParaGraph)
       assert self.get_dp_comm_time() == 0
     else:
       # when training, backward is performed
-      assert self.get_bw_time() == 0
-      assert self.get_bw_offload_time() == 0
+      assert self.get_bw_time() > 0
       if self.exe.activation_recompute == 'full':
         assert self.get_recompute_time() > 0
-        assert self.get_act_checkpoint_size() == 0
+        assert self.get_act_checkpoint_size() > 0
       elif self.exe.activation_recompute == 'partial':
         assert self.get_recompute_time() > 0
-        assert self.get_act_checkpoint_size() > 0
+        assert self.get_act_checkpoint_size() == 0
       else:
         assert self.get_recompute_time() == 0
-        assert self.get_act_checkpoint_size() > 0
+        assert self.get_act_checkpoint_size() == 0
 
 
   def run(self, sys):
@@ -1103,8 +1122,6 @@ class Megatron: # stems from class (ParaGraph)
     self._compute_batch_stats()
     self._check_mem_caps()
     self._misc_sanity_checks()
-    # TODO(misaev): def _compute_offload_requirements(self):
-    # TODO(misaev): incorporate 'weight_offload' and 'activations_offload'/'optimizer_offload'
     self._executed = True
 
   def _get_fw_offload_size(self):
@@ -1333,9 +1350,7 @@ class Megatron: # stems from class (ParaGraph)
     return req_bw
 
   def display_stats(self):
-    stats = ""
-    for layer in self._megatron_block:
-      stats += layer.get_stats_str()
+    stats = "=" * 80 + "\n"
     stats += "" \
       f"Model {self.app.name}: {self.app.num_blocks} blocks, " \
       f"hidden={self.app.hidden}, num attn heads: {self.app.attn_heads}\n" \
@@ -1370,10 +1385,4 @@ class Megatron: # stems from class (ParaGraph)
       f"Compute efficiency: {self.get_compute_efficiency()*100:.2f}%;\n" \
       f"System efficiency: {self.get_system_efficiency()*100:.2f}%;\n" \
       f"Total efficiency: {self.get_total_efficiency()*100:.2f}%;\n"
-    for k, v in self.get_json().items():
-      if k == 'layers':
-        for l in v:
-          self.log.debug('DEBUG layer %s : %s', l['name'], l)
-      else:
-        self.log.debug('DEBUG: %s : %s', k, v)
     self.log.info(stats)
