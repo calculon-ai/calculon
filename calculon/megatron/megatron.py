@@ -117,12 +117,6 @@ class Megatron: # stems from class (ParaGraph)
         yield cand
 
   @staticmethod
-  def _factors_with_check(x, check):
-    for cand in range(1, x + 1):
-      if x % cand == 0 and check(cand):
-        yield cand
-
-  @staticmethod
   def get_all_tensor_parallelisms(num_procs):
     yield from Megatron._factors(num_procs)
 
@@ -150,13 +144,7 @@ class Megatron: # stems from class (ParaGraph)
   def get_valid_minibatch_sizes(data_par, global_batch_size, pipeline_par):
     assert global_batch_size % data_par == 0
     local_batch_size = global_batch_size // data_par
-    # TODO(nicmcd): Verify
     yield from Megatron._factors(local_batch_size)
-    #def is_ok(cand):
-    #  assert local_batch_size % cand == 0
-    #  num_minibatches = local_batch_size // cand
-    #  return num_minibatches >= pipeline_par
-    #yield from Megatron._factors_with_check(local_batch_size, is_ok)
 
   def __init__(self, app, log):
     assert isinstance(app, self.Application)
