@@ -20,6 +20,7 @@ import json
 import logging
 
 import calculon
+from calculon.util import pick
 from calculon.megatron import *
 
 class OptimalExecution(calculon.CommandLine):
@@ -69,9 +70,9 @@ class OptimalExecution(calculon.CommandLine):
             assert batch_size % dp == 0
             for minibatch_size in Megatron.get_valid_minibatch_sizes(dp, batch_size, pp):
               for activation_recompute in ['full', 'partial', 'none']:
-                for optimizer_sharding in [True, False]:
+                for optimizer_sharding in pick(dp>1, [True, False], [False]):
                   for tensor_par_comm_type in ['ar', 'p2p_rs_ag', 'rs_ag']:
-                    for data_par_overlap in [True, False]:
+                    for data_par_overlap in pick(dp>1, [True, False], [False]):
                       for weight_offload in [True, False]:
                         if activation_recompute == 'full':
                           activations_offloads = [False]
