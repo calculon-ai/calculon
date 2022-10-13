@@ -125,12 +125,14 @@ class OptimalExecution(calculon.CommandLine):
     end_time = datetime.datetime.now()
 
     if not args.debug:
-      assert best_time
       logger.info(f'Total executions: {exe_count}')
       logger.info(f'Good executions: {good_exe_count}')
       logger.info(f'Bad executions: {bad_exe_count}')
       calc_rate = exe_count / (end_time - start_time).total_seconds()
       logger.info(f'Calculation rate: {calc_rate:.2f} calcs/sec')
+      if not best_time:
+        logger.fatal('No acceptable configurations found :(')
+        return -1
       logger.info(f'Best total time: {best_time}')
       with open(args.execution, 'w') as fd:
         json.dump(best_exe, fd, indent=2)
@@ -139,5 +141,6 @@ class OptimalExecution(calculon.CommandLine):
         json.dump(best_stats, fd, indent=2)
       logger.info(f'Best stats: {args.stats}')
 
+    return 0
 
 calculon.CommandLine.register(OptimalExecution)
