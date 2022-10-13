@@ -379,24 +379,26 @@ class Megatron: # stems from class (ParaGraph)
       needs_recompute=recompute_flag))
     self._megatron_block.append(BatchMatMul(
       "AttnBlock_Multihead_Key_Query",
-      self.app.attn_heads // self.exe.tensor_par,
-      self._batch_seq,
+      self.exe.minibatch_size * self.app.attn_heads // self.exe.tensor_par,
+      self.app.seq_size,
       self.app.hidden // self.app.attn_heads,
-      self._batch_seq,
+      self.app.seq_size,
       needs_recompute=recompute_attn_flag))
     self._megatron_block.append(SoftMax(
       "AttnBlock_Multihead_SoftMax",
-      self.app.attn_heads // self.exe.tensor_par * self._batch_seq**2,
+      self.app.attn_heads // self.exe.tensor_par * \
+        self.app.seq_size**2 * self.exe.minibatch_size,
       needs_recompute=recompute_attn_flag))
     self._megatron_block.append(DropOut(
       "AttnBlock_Multihead_DropOut",
-      self.app.attn_heads // self.exe.tensor_par * self._batch_seq**2,
+      self.app.attn_heads // self.exe.tensor_par * \
+        self.app.seq_size**2 * self.exe.minibatch_size,
       needs_recompute=recompute_attn_flag))
     self._megatron_block.append(BatchMatMul(
       "AttnBlock_Multihead_Attn",
-      self.app.attn_heads // self.exe.tensor_par,
-      self._batch_seq,
-      self._batch_seq,
+      self.exe.minibatch_size * self.app.attn_heads // self.exe.tensor_par,
+      self.app.seq_size,
+      self.app.seq_size,
       self.app.hidden // self.app.attn_heads,
       needs_recompute=recompute_attn_flag))
     self._megatron_block.append(Linear(
