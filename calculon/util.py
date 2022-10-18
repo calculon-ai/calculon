@@ -1,7 +1,10 @@
-def human_format(value, v_type):
+def human_format(value, v_type=None):
   step = 1
   suffix = ''
-  if v_type == 'bytes':
+  if v_type is None:
+    step = 1000
+    suffix = ''
+  elif v_type == 'bytes':
     step = 1024
     suffix = 'B'
   elif v_type == 'bandwidth':
@@ -14,8 +17,9 @@ def human_format(value, v_type):
     step = 1000
     suffix = 'Op/s'
   else:
-    raise ValueError(("Type value should be 'bytes' or 'flops' or 'bandwidth' "
-                      "or 'throughput', given {}".format(v_type)))
+    raise ValueError(
+      f"Type value should be None, 'bytes', 'flops', 'bandwidth', "
+      f"or 'throughput'. You gave {v_type}")
   labels = ['', 'k', 'M', 'G', 'T', 'P', 'E']
   index = 0
   if value != None:

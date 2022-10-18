@@ -46,6 +46,15 @@ class Megatron: # stems from class (ParaGraph)
       self.attn_heads = cfg['attn_heads']
       self.num_blocks = cfg['num_blocks']
 
+    def num_parameters(self):
+      # https://cs.stanford.edu/~matei/papers/2021/sc_megatron_lm.pdf
+      # Equation 2
+      p = 1
+      p += 13 / (12.0 * self.hidden)
+      p += (51200 + self.seq_size) / (12 * self.num_blocks * self.hidden)
+      p *= (12 * self.num_blocks * self.hidden**2)
+      return p
+
   class Execution:
     """Specifies the execution configuration."""
     def __init__(self, cfg):

@@ -28,9 +28,9 @@ class Version(calculon.CommandLine):
     sp.set_defaults(func=Version.run_command)
 
   @staticmethod
-  def run_command(args):
+  def run_command(logger, args):
     # version is specified in __init__.py
-    print(calculon.__version__)
+    logger.info(calculon.__version__)
 
 
 calculon.CommandLine.register(Version)
