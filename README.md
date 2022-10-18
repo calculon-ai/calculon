@@ -33,5 +33,5 @@ $> calculon megatron -h
 ## Megatron Example
 
 ``` sh
-$> calculon megatron examples/megatron_application.json examples/megatron_execution.json examples/a100.json
+$> calculon megatron examples/1T.json examples/megatron_execution.json examples/a100.json -
 ```
