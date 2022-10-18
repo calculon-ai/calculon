@@ -1,0 +1,7 @@
+{
+  "name": "Megatron-20B",
+  "hidden": 6144,
+  "seq_size": 2048,
+  "attn_heads": 48,
+  "num_blocks": 40
+}

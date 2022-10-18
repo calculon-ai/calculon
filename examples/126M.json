@@ -1,0 +1,7 @@
+{
+  "name": "Megatron-126M",
+  "hidden": 768,
+  "seq_size": 2048,
+  "attn_heads": 16,
+  "num_blocks": 12
+}

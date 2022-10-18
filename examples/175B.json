@@ -1,0 +1,7 @@
+{
+  "name": "Megatron-175B",
+  "hidden": 12288,
+  "seq_size": 2048,
+  "attn_heads": 96,
+  "num_blocks": 96
+}
