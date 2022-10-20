@@ -1084,12 +1084,26 @@ class Megatron: # stems from class (ParaGraph)
         assert self._block_act_space == self._block_recompute_mem_saving, \
           "We expect with full act recomputation we recompute ALL activations"
         self._act_space = self._block_act_space
+        # We need to store checkpoints for all minibatches before we compute
+        # BW pass, with 1F1B schedule it is pipeline_par minibatches
+        self._act_checkpoint_size = self._blocks_per_proc * \
+          self._block_act_checkpoint_size
+        # Keep activations for all pipeline stages for PP
+        if self.exe.pipeline_interleaving > 1:
+          self._act_checkpoint_size *= self.exe.pipeline_par * (
+            1 + (self.exe.pipeline_par - 1) / (self.exe.pipeline_interleaving *
+                                               self.exe.pipeline_par))
+        else:
+          assert self.exe.pipeline_interleaving == 1
+          self._act_checkpoint_size *= self.exe.pipeline_par
       else:
         # with partial activation recomputation we need to reclaim memory
         if self.exe.activation_recompute == "partial":
           self._block_act_space -= self._block_recompute_mem_saving
         # Without full recompute, we keep activations for all blocks on the GPU
         self._act_space = self._block_act_space * self._blocks_per_proc
+        # Without full recompute, we don't need checkpoints
+        self._act_checkpoint_size = 0
         # Keep activations for all pipeline stages for PP
         if self.exe.pipeline_interleaving > 1:
           self._act_space *= self.exe.pipeline_par * (
@@ -1098,8 +1112,6 @@ class Megatron: # stems from class (ParaGraph)
         else:
           assert self.exe.pipeline_interleaving == 1
           self._act_space *= self.exe.pipeline_par
-      self._act_checkpoint_size = self._blocks_per_proc * \
-        self._block_act_checkpoint_size
       # Only need activation grads for a single block
       self._act_grad_space = self._block_act_grad_space
     else:
