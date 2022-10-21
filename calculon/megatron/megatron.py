@@ -126,8 +126,10 @@ class Megatron: # stems from class (ParaGraph)
         yield cand
 
   @staticmethod
-  def get_all_tensor_parallelisms(num_procs):
-    yield from Megatron._factors(num_procs)
+  def get_all_tensor_parallelisms(num_procs, attn_heads):
+    for cand in Megatron._factors(num_procs):
+      if attn_heads % cand == 0:
+        yield cand
 
   @staticmethod
   def get_all_pipeline_parallelisms(num_procs, tensor_par, num_blocks):
@@ -136,9 +138,9 @@ class Megatron: # stems from class (ParaGraph)
     yield from Megatron._factors(max_pp)
 
   @staticmethod
-  def get_all_data_parallelisms(num_procs, tensor_par, pipeline_par):
+  def get_data_parallelism(num_procs, tensor_par, pipeline_par):
     assert num_procs % (tensor_par * pipeline_par) == 0
-    yield num_procs // (tensor_par * pipeline_par)
+    return num_procs // (tensor_par * pipeline_par)
 
   @staticmethod
   def get_valid_pipeline_interleavings(num_blocks, pipeline_par):
