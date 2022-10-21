@@ -20,6 +20,5 @@ from .megatron import *
 
 # Command lines
 from .optimal_execution import OptimalExecution
-from .parallelism_search import ParallelismSearch
 from .parameter_calculator import ParameterCalculator
 from .runner import Runner

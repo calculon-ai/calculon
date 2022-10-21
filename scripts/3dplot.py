@@ -21,34 +21,29 @@ def main(args):
       ndata[tpi][ppi] = data[tp][pp]
   data = ndata
 
-  print(data)
-
   tps = sorted(list(data.keys()))
   pps = set()
   for tp in data.keys():
     for pp in data[tp].keys():
       pps.add(pp)
   pps = sorted(list(pps))
-  print(tps)
-  print(pps)
   fdata = np.full((len(pps), len(tps)), float('NaN'))
   for tp in data.keys():
     for pp in data[tp].keys():
       if data[tp][pp]:
         fdata[pps.index(pp)][tps.index(tp)] = data[tp][pp]
-  print(fdata)
 
   fig = plt.figure()
   ax = fig.add_subplot(111, projection='3d')
   X, Y = np.meshgrid(list(range(len(tps))), list(range(len(pps))))
-  print(fdata)
   ax.plot_surface(X, Y, fdata, rstride=1, cstride=1,
                   cmap='rainbow',
                   edgecolor='none')
   ax.set_xlabel('Tensor Parallelism')
   ax.set_ylabel('Pipeline Parallelism')
   ax.set_zlabel('Batch Time (s)')
-  ax.set_title(f'Parallelism Search')
+  if args.title:
+    ax.set_title(args.title)
   ax.view_init(20, 180+25)
   @tkr.FuncFormatter
   def formatter(x, pos):
@@ -68,5 +63,7 @@ if __name__ == '__main__':
   ap = argparse.ArgumentParser()
   ap.add_argument('stats', type=str,
                   help='File path to stats input')
+  ap.add_argument('-t', '--title', type=str, default=None,
+                  help='Title of plot')
   args = ap.parse_args()
   main(args)
