@@ -36,8 +36,8 @@ def search(debug, num_procs, app, syst, tp, pp):
   for ppint in Megatron.get_valid_pipeline_interleavings(app.num_blocks, pp):
     batch_size = 4096
     assert batch_size % dp == 0
-    for minibatch_size in Megatron.get_valid_minibatch_sizes(dp, batch_size, pp):
-      for activation_recompute in ['full', 'partial', 'none']:
+    for microbatch_size in Megatron.get_valid_microbatch_sizes(dp, batch_size, pp):
+      for activation_recompute in ['full', 'attn_only', 'none']:
         for optimizer_sharding in pick(dp>1, [True, False], [False]):
           for tensor_par_comm_type in ['ar', 'p2p_rs_ag', 'rs_ag']:
             for data_par_overlap in pick(dp>1, [True, False], [False]):
@@ -55,7 +55,7 @@ def search(debug, num_procs, app, syst, tp, pp):
                       'pipeline_par': pp,
                       'data_par': dp,
                       'batch_size': batch_size,
-                      'minibatch_size': minibatch_size,
+                      'microbatch_size': microbatch_size,
                       'datatype': 'bfloat16',
                       'activation_recompute': activation_recompute,
                       'pipeline_interleaving': ppint,

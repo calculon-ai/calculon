@@ -4,7 +4,7 @@
   "pipeline_par": 32,
   "data_par": 16,
   "batch_size": 4096,
-  "minibatch_size": 1,
+  "microbatch_size": 1,
   "datatype": "bfloat16",
   "activation_recompute": "full",
   "pipeline_interleaving": 2,

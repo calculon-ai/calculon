@@ -72,16 +72,16 @@ class Megatron: # stems from class (ParaGraph)
         self.data_par, 'tensor * pipeline * data parallelism != num_procs'
       self.global_batch_size = cfg['batch_size']
       assert self.global_batch_size > 0
-      self.minibatch_size = cfg['minibatch_size']
-      assert self.minibatch_size > 0
+      self.microbatch_size = cfg['microbatch_size']
+      assert self.microbatch_size > 0
       assert self.global_batch_size % self.data_par == 0
       self._local_batch_size = self.global_batch_size // self.data_par
-      assert self._local_batch_size % self.minibatch_size == 0
-      self._num_minibatches = self._local_batch_size // self.minibatch_size
+      assert self._local_batch_size % self.microbatch_size == 0
+      self._num_microbatches = self._local_batch_size // self.microbatch_size
       self.datatype = cfg['datatype']
       self.activation_recompute = cfg['activation_recompute']
-      assert self.activation_recompute in ['full', 'partial', 'none']
-      if self.activation_recompute in ['full', 'partial']:
+      assert self.activation_recompute in ['full', 'attn_only', 'none']
+      if self.activation_recompute in ['full', 'attn_only']:
         assert self.training, "We only perform recompute during training"
       self.pipeline_interleaving = cfg['pipeline_interleaving']
       assert self.pipeline_interleaving > 0, \
@@ -152,7 +152,7 @@ class Megatron: # stems from class (ParaGraph)
       yield from Megatron._factors(max_ppint)
 
   @staticmethod
-  def get_valid_minibatch_sizes(data_par, global_batch_size, pipeline_par):
+  def get_valid_microbatch_sizes(data_par, global_batch_size, pipeline_par):
     assert global_batch_size % data_par == 0
     local_batch_size = global_batch_size // data_par
     yield from Megatron._factors(local_batch_size)
@@ -175,7 +175,7 @@ class Megatron: # stems from class (ParaGraph)
     # Holds the layers in a single block
     self._megatron_block = []
 
-    # A chunk is a set of blocks for minibatch before passing to the next
+    # A chunk is a set of blocks for microbatch before passing to the next
     # processor in the pipeline. Each chunk is modeled as a base
     # block that is repeated N-1 times and followed by 1 edge block.
     # Recommunication time is the same in both base and edge blocks.
@@ -208,7 +208,7 @@ class Megatron: # stems from class (ParaGraph)
     self._pp_net_tier = None
     self._pp_net = None
 
-    # metrics collected after run for each minibatch
+    # metrics collected after run for each microbatch
     self._block_fw_flops = None
     self._block_fw_flops_time = None
     self._block_fw_mem_accessed = None
@@ -337,7 +337,7 @@ class Megatron: # stems from class (ParaGraph)
 
   def _build_attn_block(self):
     recompute_flag = self.exe.activation_recompute == "full"
-    recompute_attn_flag = self.exe.activation_recompute in ["full", "partial"]
+    recompute_attn_flag = self.exe.activation_recompute in ["full", "attn_only"]
 
     assert self.app.hidden % self.exe.tensor_par == 0, (
       f"We should split hidden={self.app.hidden} between"
@@ -365,7 +365,7 @@ class Megatron: # stems from class (ParaGraph)
       # because we don't differentiate between edge and middle blocks here
       split_comm=self.exe._sequence_par,
       conjugate=False,
-      in_network_reduction = self.exe.in_network_reduction,
+      in_network_reduction=self.exe.in_network_reduction,
       needs_recompute=recompute_flag))
     self._megatron_block.append(Fork(
       "AttnBlock_Fork",
@@ -390,7 +390,7 @@ class Megatron: # stems from class (ParaGraph)
       needs_recompute=recompute_flag))
     self._megatron_block.append(BatchMatMul(
       "AttnBlock_Multihead_Key_Query",
-      self.exe.minibatch_size * self.app.attn_heads // self.exe.tensor_par,
+      self.exe.microbatch_size * self.app.attn_heads // self.exe.tensor_par,
       self.app.seq_size,
       self.app.hidden // self.app.attn_heads,
       self.app.seq_size,
@@ -398,16 +398,16 @@ class Megatron: # stems from class (ParaGraph)
     self._megatron_block.append(SoftMax(
       "AttnBlock_Multihead_SoftMax",
       self.app.attn_heads // self.exe.tensor_par * \
-        self.app.seq_size**2 * self.exe.minibatch_size,
+        self.app.seq_size**2 * self.exe.microbatch_size,
       needs_recompute=recompute_attn_flag))
     self._megatron_block.append(DropOut(
       "AttnBlock_Multihead_DropOut",
       self.app.attn_heads // self.exe.tensor_par * \
-        self.app.seq_size**2 * self.exe.minibatch_size,
+        self.app.seq_size**2 * self.exe.microbatch_size,
       needs_recompute=recompute_attn_flag))
     self._megatron_block.append(BatchMatMul(
       "AttnBlock_Multihead_Attn",
-      self.exe.minibatch_size * self.app.attn_heads // self.exe.tensor_par,
+      self.exe.microbatch_size * self.app.attn_heads // self.exe.tensor_par,
       self.app.seq_size,
       self.app.seq_size,
       self.app.hidden // self.app.attn_heads,
@@ -427,7 +427,7 @@ class Megatron: # stems from class (ParaGraph)
       # because we don't differentiate between edge and middle blocks here
       split_comm=self.exe._sequence_par,
       conjugate=True,
-      in_network_reduction = self.exe.in_network_reduction,
+      in_network_reduction=self.exe.in_network_reduction,
       needs_recompute=recompute_flag))
 
     self._megatron_block.append(DropOut(
@@ -461,7 +461,7 @@ class Megatron: # stems from class (ParaGraph)
       # because we don't differentiate between edge and middle blocks here
       split_comm=self.exe._sequence_par,
       conjugate=False,
-      in_network_reduction = self.exe.in_network_reduction,
+      in_network_reduction=self.exe.in_network_reduction,
       needs_recompute=recompute_flag))
     self._megatron_block.append(Linear(
       "MlpBlock_Mlp1",
@@ -488,7 +488,7 @@ class Megatron: # stems from class (ParaGraph)
       # because we don't differentiate between edge and middle blocks here
       split_comm=self.exe._sequence_par,
       conjugate=True,
-      in_network_reduction = self.exe.in_network_reduction,
+      in_network_reduction=self.exe.in_network_reduction,
       needs_recompute=recompute_flag))
 
     self._megatron_block.append(DropOut(
@@ -536,7 +536,7 @@ class Megatron: # stems from class (ParaGraph)
       raise self.Error('Offloading requires each processor to handle at least'
                        ' 3 blocks')
 
-    # A chunk is a set of blocks for minibatch before passing to the next
+    # A chunk is a set of blocks for microbatch before passing to the next
     # processor in the pipeline. Each chunk is modeled as a base
     # block that is repeated N-1 times and followed by 1 edge block.
     # Recommunication time is the same in both base and edge blocks.
@@ -551,7 +551,7 @@ class Megatron: # stems from class (ParaGraph)
     self._edgeblocks_per_chunk = 1
 
     # Build model during the compilation step
-    self._batch_seq = self.exe.minibatch_size * self.app.seq_size
+    self._batch_seq = self.exe.microbatch_size * self.app.seq_size
     self._activation_size = self._batch_seq * self.app.hidden
     self._batch_seq_par = self._batch_seq // self.exe.tensor_par
     if self.exe._sequence_par or self.exe._pipeline_par_rs_ag:
@@ -575,13 +575,13 @@ class Megatron: # stems from class (ParaGraph)
     self.offload_throughput = self.sys.memory_throughput(2)
 
     self.log.debug("%s %s", "vector_throughput:",
-      human_format(self.vector_throughput, 'throughput'))
+                   human_format(self.vector_throughput, 'throughput'))
     self.log.debug("%s %s", "matrix_throughput:",
-      human_format(self.matrix_throughput, 'throughput'))
+                   human_format(self.matrix_throughput, 'throughput'))
     self.log.debug("%s %s", "mem_throughput:",
-      human_format(self.mem_throughput, 'bandwidth'))
+                   human_format(self.mem_throughput, 'bandwidth'))
     self.log.debug("%s %s", "offload_throughput:",
-      human_format(self.offload_throughput, 'bandwidth'))
+                   human_format(self.offload_throughput, 'bandwidth'))
 
     # TODO(nicmcd): there are possible permutations of T,P,D and the
     # corresponding network tiers that we are missing here. Write an algorithm
@@ -617,8 +617,10 @@ class Megatron: # stems from class (ParaGraph)
     self._dp_net = self.sys.get_network(self._dp_net_tier)
 
     # Determines network tier for PP
-    assert (self.exe.pipeline_par * self.exe.data_par * self.exe.tensor_par <= net_tier1_size or
-            self.exe.pipeline_par * self.exe.data_par * self.exe.tensor_par <= net_tier2_size), \
+    assert (self.exe.pipeline_par * self.exe.data_par * \
+            self.exe.tensor_par <= net_tier1_size or \
+            self.exe.pipeline_par * self.exe.data_par * \
+            self.exe.tensor_par <= net_tier2_size), \
             f"p={self.exe.pipeline_par} x d={self.exe.data_par} x t={self.exe.tensor_par} is larger than the " \
             f"network size {self.sys.net_tier1_size} " \
             f"or {self.sys.net_tier2_size}"
@@ -631,7 +633,7 @@ class Megatron: # stems from class (ParaGraph)
 
   def _compute_block_stats(self):
     """
-    This function computes the statistics for one minibatch on a single block.
+    This function computes the statistics for one microbatch on a single block.
     This only computes flops, flop time, and communication sizes. Since
     tensor and pipeline parallelism cause different communication operations to
     occur at the full batch level, the communication times are computed later.
@@ -699,66 +701,66 @@ class Megatron: # stems from class (ParaGraph)
         self._block_optimizer_space += layer.get_optimizer()
 
       self.log.debug("%s %s %s", layer.name, 'FW flops:',
-        human_format(layer.get_fw_flops(), 'flops'))
+                     human_format(layer.get_fw_flops(), 'flops'))
       self.log.debug("%s %s %.3e", layer.name, 'FW flops time:',
-        layer.get_fw_flops() / flops_throughput)
+                     layer.get_fw_flops() / flops_throughput)
       self.log.debug("%s %s %s", layer.name, 'FW num inputs:',
-        human_format(layer.inputs_size, 'bytes'))
+                     human_format(layer.inputs_size, 'bytes'))
       self.log.debug("%s %s %s", layer.name, 'FW num output:',
-        human_format(layer.output_size, 'bytes'))
+                     human_format(layer.output_size, 'bytes'))
       self.log.debug("%s %s %s", layer.name, 'FW num weights:',
-        human_format(layer.weight_space, 'bytes'))
+                     human_format(layer.weight_space, 'bytes'))
       self.log.debug("%s %s %s", layer.name, 'FW mem:',
-        human_format(layer.get_fw_mem_accessed(), 'bytes'))
+                     human_format(layer.get_fw_mem_accessed(), 'bytes'))
       self.log.debug("%s %s %.3e", layer.name, 'FW mem time:',
-        layer.get_fw_mem_accessed() / self.mem_throughput)
+                     layer.get_fw_mem_accessed() / self.mem_throughput)
       self.log.debug("%s %s %.3e", layer.name, 'FW time:',
-        layer.get_fw_flops() / flops_throughput + \
-        layer.get_fw_mem_accessed() / self.mem_throughput)
+                     layer.get_fw_flops() / flops_throughput + \
+                     layer.get_fw_mem_accessed() / self.mem_throughput)
       self.log.debug("%s %s %s", layer.name, 'BW flops:',
-        human_format(layer.get_bw_flops(), 'flops'))
+                     human_format(layer.get_bw_flops(), 'flops'))
       self.log.debug("%s %s %.3e", layer.name, 'BW flops time:',
-        layer.get_bw_flops() / flops_throughput)
+                     layer.get_bw_flops() / flops_throughput)
       self.log.debug("%s %s %s", layer.name, 'BW num Wgrads:',
-        human_format(layer.weight_grads, 'bytes'))
+                     human_format(layer.weight_grads, 'bytes'))
       self.log.debug("%s %s %s", layer.name, 'BW num Agrads:',
-        human_format(layer.activation_grads, 'bytes'))
+                     human_format(layer.activation_grads, 'bytes'))
       self.log.debug("%s %s %s", layer.name, 'BW num Igrads:',
-        human_format(layer.output_size, 'bytes'))
+                     human_format(layer.output_size, 'bytes'))
       self.log.debug("%s %s %s", layer.name, 'BW mem:',
-        human_format(layer.get_bw_mem_accessed(), 'bytes'))
+                     human_format(layer.get_bw_mem_accessed(), 'bytes'))
       self.log.debug("%s %s %.3e", layer.name, 'BW mem time:',
-        layer.get_bw_mem_accessed() / self.mem_throughput)
+                     layer.get_bw_mem_accessed() / self.mem_throughput)
       self.log.debug("%s %s %.3e", layer.name, 'Recompute time:',
-        layer.get_recompute_flag() * (
-          layer.get_fw_flops() / flops_throughput + \
-          layer.get_fw_mem_accessed() / self.mem_throughput))
+                     layer.get_recompute_flag() * (
+                       layer.get_fw_flops() / flops_throughput + \
+                       layer.get_fw_mem_accessed() / self.mem_throughput))
       self.log.debug("%s %s %s", layer.name, 'Recompute mem saving:',
-        human_format(layer.get_recompute_flag() * \
-          layer.get_activation(), 'bytes'))
+                     human_format(layer.get_recompute_flag() * \
+                       layer.get_activation(), 'bytes'))
       self.log.debug("%s %s %s", layer.name, 'Weight:',
-        human_format(layer.get_weight(), 'bytes'))
+                     human_format(layer.get_weight(), 'bytes'))
       self.log.debug("%s %s %s", layer.name, 'Act:',
-        human_format(layer.get_activation(), 'bytes'))
+                     human_format(layer.get_activation(), 'bytes'))
       self.log.debug("%s %s %s", layer.name, 'Weight grad:',
-        human_format(layer.get_weight_grad(), 'bytes'))
+                     human_format(layer.get_weight_grad(), 'bytes'))
       self.log.debug("%s %s %s", layer.name, 'Act grad:',
-        human_format(layer.get_activation_grad(), 'bytes'))
+                     human_format(layer.get_activation_grad(), 'bytes'))
       self.log.debug("%s %s %s", layer.name, 'Optim:',
-        human_format(layer.get_optimizer(), 'bytes'))
+                     human_format(layer.get_optimizer(), 'bytes'))
 
       self.log.debug("%s %s %s", layer.name, 'Incremental Weight:',
-        human_format(self._block_weight_space, 'bytes'))
+                     human_format(self._block_weight_space, 'bytes'))
       self.log.debug("%s %s %s", layer.name, 'Incremental Act:',
-        human_format(self._block_act_space, 'bytes'))
+                     human_format(self._block_act_space, 'bytes'))
       self.log.debug("%s %s %s", layer.name, 'Incremental Recompute Saving:',
-        human_format(self._block_recompute_mem_saving, 'bytes'))
+                     human_format(self._block_recompute_mem_saving, 'bytes'))
       self.log.debug("%s %s %s", layer.name, 'Incremental Weight grad:',
-        human_format(self._block_weight_grad_space, 'bytes'))
+                     human_format(self._block_weight_grad_space, 'bytes'))
       self.log.debug("%s %s %s", layer.name, 'Incremental Act grad:',
-        human_format(self._block_act_grad_space, 'bytes'))
+                     human_format(self._block_act_grad_space, 'bytes'))
       self.log.debug("%s %s %s", layer.name, 'Incremental Optim:',
-        human_format(self._block_optimizer_space, 'bytes'))
+                     human_format(self._block_optimizer_space, 'bytes'))
 
     # Megatron has 2 communication operations per block when using tensor
     # parallelism
@@ -799,24 +801,24 @@ class Megatron: # stems from class (ParaGraph)
       self._block_bw_pp_size = 0
 
     self.log.debug("%s %s", 'TP comm FW size:',
-      human_format(self._block_fw_tp_size, 'bytes'))
+                   human_format(self._block_fw_tp_size, 'bytes'))
     self.log.debug("%s %s", 'PP comm FW size:',
-      human_format(self._block_fw_pp_size, 'bytes'))
+                   human_format(self._block_fw_pp_size, 'bytes'))
     self.log.debug("%s %s", 'TP comm BW size:',
-      human_format(self._block_bw_tp_size, 'bytes'))
+                   human_format(self._block_bw_tp_size, 'bytes'))
     self.log.debug("%s %s", 'PP comm BW size:',
-      human_format(self._block_bw_pp_size, 'bytes'))
+                   human_format(self._block_bw_pp_size, 'bytes'))
     self.log.debug("%s %s", 'TP recomm size:',
-      human_format(self._block_recomm_size, 'bytes'))
+                   human_format(self._block_recomm_size, 'bytes'))
 
 
   def _compute_batch_stats(self):
     """
     This function computes the statistics for a full batch. This uses the per
-    minibatch per block statistics from the prior function (see above).
+    microbatch per block statistics from the prior function (see above).
     """
     # Total stats for compute and memory
-    mult = self._blocks_per_proc * self.exe._num_minibatches
+    mult = self._blocks_per_proc * self.exe._num_microbatches
     self._fw_flops = mult * self._block_fw_flops
     self._fw_flops_time = mult * self._block_fw_flops_time
     self._fw_mem_accessed = mult * self._block_fw_mem_accessed
@@ -902,13 +904,13 @@ class Megatron: # stems from class (ParaGraph)
       edgeblock_bw_tp_time = 0
 
     # These TP numbers are for total times for all blocks in all chunks
-    tp_fw_comm_time = self.exe._num_minibatches * self._chunks_per_proc * (
+    tp_fw_comm_time = self.exe._num_microbatches * self._chunks_per_proc * (
       (self._baseblocks_per_chunk * baseblock_fw_tp_time) +
       (self._edgeblocks_per_chunk * edgeblock_fw_tp_time))
-    tp_bw_comm_time = self.exe._num_minibatches * self._chunks_per_proc * (
+    tp_bw_comm_time = self.exe._num_microbatches * self._chunks_per_proc * (
       (self._baseblocks_per_chunk * baseblock_bw_tp_time) +
       (self._edgeblocks_per_chunk * edgeblock_bw_tp_time))
-    tp_recomm_time = self.exe._num_minibatches * self._chunks_per_proc * (
+    tp_recomm_time = self.exe._num_microbatches * self._chunks_per_proc * (
       self._blocks_per_chunk * block_recomm_time)
 
     # Per chunk PP comm time
@@ -927,9 +929,9 @@ class Megatron: # stems from class (ParaGraph)
       num_fw_pp_p2ps = 0
       num_bw_pp_p2ps = 0
 
-    # These PP numbers are for total times for all blocks and all minibatches
-    pp_fw_comm_time = self.exe._num_minibatches * num_fw_pp_p2ps * chunk_fw_pp_time
-    pp_bw_comm_time = self.exe._num_minibatches * num_bw_pp_p2ps * chunk_bw_pp_time
+    # These PP numbers are for total times for all blocks and all microbatches
+    pp_fw_comm_time = self.exe._num_microbatches * num_fw_pp_p2ps * chunk_fw_pp_time
+    pp_bw_comm_time = self.exe._num_microbatches * num_bw_pp_p2ps * chunk_bw_pp_time
 
     # Aggregrates metrics
     self._tp_comm_time = tp_fw_comm_time + tp_bw_comm_time
@@ -947,11 +949,11 @@ class Megatron: # stems from class (ParaGraph)
     self.log.debug("%s %s", 'PP comm FW time:', pp_fw_comm_time)
     self.log.debug("%s %s", 'PP comm BW time:', pp_bw_comm_time)
 
-    # Bubble forms between i-th minibatch FW and BW passes on the 1st GPU.
+    # Bubble forms between i-th microbatch FW and BW passes on the 1st GPU.
     # With no interleaving between blocks, it includes
-    # L/gpu x minibatch_time x (p-1) x Tcycle, where cycle includes both
+    # L/gpu x microbatch_time x (p-1) x Tcycle, where cycle includes both
     # FW and BW passes, TP and PP communication for FW and BW passes
-    # With full interleaving, we only need minibatch_time x (p-1) x Tcycle time
+    # With full interleaving, we only need microbatch_time x (p-1) x Tcycle time
     self._baseblock_fw_time = (
       self._block_fw_flops_time + \
       self._block_fw_mem_time + \
@@ -989,25 +991,25 @@ class Megatron: # stems from class (ParaGraph)
       self._baseblock_bw_time + self._edgeblock_bw_time) / 2
     chunks_in_bubble = self.exe.pipeline_par - 1
     # With PP interleaving we assume that we move through every chunk at least
-    # PP mini batches. If num_minibatches < PP, then we have extra bubbles
-    if self.exe._num_minibatches < self.exe.pipeline_par:
+    # PP mini batches. If num_microbatches < PP, then we have extra bubbles
+    if self.exe._num_microbatches < self.exe.pipeline_par:
       extra_interleaving_bubbles = chunks_in_bubble * (
-        self.exe.pipeline_par - self.exe._num_minibatches)
+        self.exe.pipeline_par - self.exe._num_microbatches)
     else:
       extra_interleaving_bubbles = 0
     self._bubble_time = chunks_in_bubble * chunk_time - \
       bubble_reduction_time + extra_interleaving_bubbles * chunk_time
 
     self.log.debug("%s %s", 'Block FW flops time:',
-      self._block_fw_flops_time)
+                   self._block_fw_flops_time)
     self.log.debug("%s %s", 'Block FW mem time:', self._block_fw_mem_time)
     self.log.debug("%s %s", 'Baseblock FW time:', self._baseblock_fw_time)
     self.log.debug("%s %s", 'Edgeblock FW time:', self._edgeblock_fw_time)
     self.log.debug("%s %s", 'Block BW flops time:',
-      self._block_bw_flops_time)
+                   self._block_bw_flops_time)
     self.log.debug("%s %s", 'Block BW mem time:', self._block_bw_mem_time)
     self.log.debug("%s %s", 'Block BW recompute time:',
-      self._block_recompute_time)
+                   self._block_recompute_time)
     self.log.debug("%s %s", 'Block BW recomm time:', block_recomm_time)
     self.log.debug("%s %s", 'Baseblock BW time:', self._baseblock_bw_time)
     self.log.debug("%s %s", 'Edgeblock BW time:', self._edgeblock_bw_time)
@@ -1031,21 +1033,21 @@ class Megatron: # stems from class (ParaGraph)
           'all_reduce', self._block_dp_size, self.exe.data_par)
     else:
       self._block_dp_time = 0
-    self.log.debug('DP block comm size: %s', human_format(
-      self._block_dp_size, 'bytes'))
-    self.log.debug(
-      'DP block comm time (no overlap): %.3e', self._block_dp_time)
+    self.log.debug('DP block comm size: %s',
+                   human_format(self._block_dp_size, 'bytes'))
+    self.log.debug('DP block comm time (no overlap): %.3e',
+                   self._block_dp_time)
 
     # DP overlap happens if DP time for a previous block(s) is lower than
-    # minibatch BW pass time for next pack of consecutive blocks
-    # In case of no interleaving, we move a single minibatch through each block
-    # and need to overlap DP during a single block single minibatch time
-    # In case of full interleaving, we propagate p minibatches through each
-    # block and need to overlap DP comm with p-1 minibatches over a block
+    # microbatch BW pass time for next pack of consecutive blocks
+    # In case of no interleaving, we move a single microbatch through each block
+    # and need to overlap DP during a single block single microbatch time
+    # In case of full interleaving, we propagate p microbatches through each
+    # block and need to overlap DP comm with p-1 microbatches over a block
     # In a mixed case, we can overlap DP communication of several
     # non-interleaved blocks (L/gpu / interleaving_factor) over BW pass of
-    # p-1 minibatches through the same amount of blocks if memory capacity is
-    # enough, or perform offload/prefetch after each block-minibatch
+    # p-1 microbatches through the same amount of blocks if memory capacity is
+    # enough, or perform offload/prefetch after each block-microbatch
     # For simplicity we count only bandwidth-optimal case
     if self.exe.data_par > 1 and self.exe.training:
       if self.exe.data_par_overlap:
@@ -1054,8 +1056,8 @@ class Megatron: # stems from class (ParaGraph)
         num_overlappable_chunks = self.exe.pipeline_interleaving - 1
         last_chunk_overlap_size = self._blocks_per_chunk - 1
         # Overlappable chunks have overlap size equal to
-        # blocks_per_chunk * num_minibatches
-        # In case of 1F1B schedule, num_minibatches == pipeline_par
+        # blocks_per_chunk * num_microbatches
+        # In case of 1F1B schedule, num_microbatches == pipeline_par
         overlappable_chunks_exposed_time = num_overlappable_chunks * \
           max(0, self._blocks_per_chunk * self._block_dp_time - \
             self.exe.pipeline_par * chunk_bw_time)
@@ -1074,7 +1076,7 @@ class Megatron: # stems from class (ParaGraph)
       self._dp_comm_time = 0
     self.log.debug('DP comm time exposed: %.3e', self._dp_comm_time)
     self.log.debug('DP comm time on the link: %.3e',
-     self._blocks_per_proc * self._block_dp_time)
+                   self._blocks_per_proc * self._block_dp_time)
 
     # memory capacity stats
     self._weight_space = self._block_weight_space * self._blocks_per_proc
@@ -1086,8 +1088,8 @@ class Megatron: # stems from class (ParaGraph)
         assert self._block_act_space == self._block_recompute_mem_saving, \
           "We expect with full act recomputation we recompute ALL activations"
         self._act_space = self._block_act_space
-        # We need to store checkpoints for all minibatches before we compute
-        # BW pass, with 1F1B schedule it is pipeline_par minibatches
+        # We need to store checkpoints for all microbatches before we compute
+        # BW pass, with 1F1B schedule it is pipeline_par microbatches
         self._act_checkpoint_size = self._blocks_per_proc * \
           self._block_act_checkpoint_size
         # Keep activations for all pipeline stages for PP
@@ -1100,7 +1102,7 @@ class Megatron: # stems from class (ParaGraph)
           self._act_checkpoint_size *= self.exe.pipeline_par
       else:
         # with partial activation recomputation we need to reclaim memory
-        if self.exe.activation_recompute == "partial":
+        if self.exe.activation_recompute == "attn_only":
           self._block_act_space -= self._block_recompute_mem_saving
         # Without full recompute, we keep activations for all blocks on the GPU
         self._act_space = self._block_act_space * self._blocks_per_proc
@@ -1189,7 +1191,7 @@ class Megatron: # stems from class (ParaGraph)
       if self.exe.activation_recompute == 'full':
         assert self.get_recompute_time() > 0
         assert self.get_act_checkpoint_size() > 0
-      elif self.exe.activation_recompute == 'partial':
+      elif self.exe.activation_recompute == 'attn_only':
         assert self.get_recompute_time() > 0
         assert self.get_act_checkpoint_size() == 0
       else:
@@ -1236,11 +1238,11 @@ class Megatron: # stems from class (ParaGraph)
     return self._get_fw_offload_size() / self.offload_throughput
 
   def get_fw_offload_overhead(self):
-    baseblock_overhead = max(0,
-      self.get_fw_offload_time() - self._baseblock_fw_time)
-    edgeblock_overhead = max(0,
-      self.get_fw_offload_time() - self._edgeblock_fw_time)
-    full_overhead = self.exe._num_minibatches * self._chunks_per_proc * (
+    baseblock_overhead = max(
+      0, self.get_fw_offload_time() - self._baseblock_fw_time)
+    edgeblock_overhead = max(
+      0, self.get_fw_offload_time() - self._edgeblock_fw_time)
+    full_overhead = self.exe._num_microbatches * self._chunks_per_proc * (
       (self._baseblocks_per_chunk * baseblock_overhead) +
       (self._edgeblocks_per_chunk * edgeblock_overhead))
     return full_overhead
@@ -1261,11 +1263,11 @@ class Megatron: # stems from class (ParaGraph)
 
   def get_bw_offload_overhead(self):
     if self.exe.training:
-      baseblock_overhead = max(0,
-        self.get_bw_offload_time() - self._baseblock_bw_time)
-      edgeblock_overhead = max(0,
-        self.get_bw_offload_time() - self._edgeblock_bw_time)
-      full_overhead = self.exe._num_minibatches * self._chunks_per_proc * (
+      baseblock_overhead = max(
+        0, self.get_bw_offload_time() - self._baseblock_bw_time)
+      edgeblock_overhead = max(
+        0, self.get_bw_offload_time() - self._edgeblock_bw_time)
+      full_overhead = self.exe._num_microbatches * self._chunks_per_proc * (
         (self._baseblocks_per_chunk * baseblock_overhead) +
         (self._edgeblocks_per_chunk * edgeblock_overhead))
       return full_overhead
@@ -1329,7 +1331,7 @@ class Megatron: # stems from class (ParaGraph)
   def get_compute_efficiency(self):
     total_flops = self.get_useful_flops()
     compute_time = self.get_fw_time() + self.get_bw_time()
-    perfect_time = self._blocks_per_proc * self.exe._num_minibatches * \
+    perfect_time = self._blocks_per_proc * self.exe._num_microbatches * \
       total_flops / self.sys.matrix_flops
     return perfect_time / compute_time
 
@@ -1339,7 +1341,7 @@ class Megatron: # stems from class (ParaGraph)
 
   def get_total_efficiency(self):
     total_flops = self.get_useful_flops()
-    perfect_time = self._blocks_per_proc * self.exe._num_minibatches * \
+    perfect_time = self._blocks_per_proc * self.exe._num_microbatches * \
       total_flops / self.sys.matrix_flops
     return perfect_time / self.get_total_time()
 
