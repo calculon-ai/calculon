@@ -100,6 +100,8 @@ class Megatron: # stems from class (ParaGraph)
       if self.seq_par_ag_redo:
         assert self.tensor_par_comm_type == 'rs_ag', "We only redo AG comm"
         assert self._sequence_par, "We only redo AG with sequence parallelism"
+        assert self.activation_recompute != 'full', \
+          "We assume no extra AG with full recompute"
       self._pipeline_par_rs_ag = \
         self.tensor_par_comm_type in ['p2p_rs_ag', 'rs_ag']
       self.data_par_overlap = cfg['data_par_overlap']
@@ -829,7 +831,7 @@ class Megatron: # stems from class (ParaGraph)
     if self.exe.training:
       if self.exe.activation_recompute == "full":
         self._block_recomm_size = self._block_fw_tp_size
-      else if self.exe.seq_par_ag_redo:
+      elif self.exe.seq_par_ag_redo:
         # only works when recompuet is attn_only or none with seq_par
         self._block_recomm_size = self._block_fw_tp_size
       else:
