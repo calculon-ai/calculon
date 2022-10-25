@@ -307,8 +307,9 @@ class Fork(Layer):
                      bw_flops=num_users*act_size,
                      activation_space=act_size,
                      # Gradients from num_users accumulated in a single storage
-                     # that's accounted in the previous layer
-                     activation_grads=act_size,
+                     # that's accounted in the other layers
+                     # use 0 here to avoid double accounting
+                     activation_grads=0,
                      needs_recompute=needs_recompute,
                      activation_not_stored=activation_not_stored)
 

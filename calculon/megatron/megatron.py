@@ -878,6 +878,7 @@ class Megatron: # stems from class (ParaGraph)
     # We consider full activation recomputation to start with the full
     # activation checkpoint  (not distributed across TP nodes)
     # TODO(misaev): think if we want to introduce split_act_cp optimization
+    # TODO(misaev): rework recomm
     if self.exe.training and self.exe.tensor_par > 1 and \
       self.exe.activation_recompute == 'full':
       block_recomm_time = self._block_tp_comm_count * self._tp_net.time(
