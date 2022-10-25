@@ -92,6 +92,6 @@ class System:
 
   def _compute_processing_time(self, flops_time, mem_time):
     if self.proc_mode == 'roofline':
-      return min(flops_time, mem_time)
+      return max(flops_time, mem_time)
     elif self.proc_mode == 'no_overlap':
       return flops_time + mem_time
