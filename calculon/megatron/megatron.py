@@ -199,13 +199,6 @@ class Megatron: # stems from class (ParaGraph)
     self._activation_size = None
     self._seq_par_activation_size = None
 
-    # HW parameters to populate during run
-    # TODO(nicmcd): this should be calculated on the fly by the system class
-    self.vector_throughput = None
-    self.matrix_throughput = None
-    self.mem_throughput = None
-    self.offload_throughput = None
-
     # Assignments to specific networks
     self._tp_net_tier = None
     self._tp_net = None
@@ -219,12 +212,18 @@ class Megatron: # stems from class (ParaGraph)
     self._block_fw_flops_time = None
     self._block_fw_mem_accessed = None
     self._block_fw_mem_time = None
+    self._block_fw_time = None
+    self._block_re_flops = None
+    self._block_re_flops_time = None
+    self._block_re_mem_accessed = None
+    self._block_re_mem_time = None
+    self._block_re_time = None
+    self._block_recompute_mem_saving = None
     self._block_bw_flops = None
     self._block_bw_flops_time = None
     self._block_bw_mem_accessed = None
     self._block_bw_mem_time = None
-    self._block_recompute_mem_saving = None
-    self._block_recompute_time = None
+    self._block_bw_time = None
 
     self._block_tp_comm_count = None
     self._block_fw_tp_size = None
@@ -260,11 +259,17 @@ class Megatron: # stems from class (ParaGraph)
     self._fw_flops_time = None
     self._fw_mem_accessed = None
     self._fw_mem_time = None
+    self._fw_time = None
+    self._re_flops = None
+    self._re_flops_time = None
+    self._re_mem_accessed = None
+    self._re_mem_time = None
+    self._re_time = None
     self._bw_flops = None
     self._bw_flops_time = None
     self._bw_mem_accessed = None
     self._bw_mem_time = None
-    self._recompute_time = None
+    self._bw_time = None
 
     # Top level network stats
     self._tp_comm_time = None
@@ -276,11 +281,6 @@ class Megatron: # stems from class (ParaGraph)
   def get_json(self):
     assert self._executed
     j = {}
-    j['vector_throughput'] = self.vector_throughput
-    j['matrix_throughput'] = self.matrix_throughput
-    j['mem_throughput'] = self.mem_throughput
-    j['offload_throughput'] = self.offload_throughput
-
     j['tp_net_tier'] = self._tp_net_tier
     j['dp_net_tier'] = self._dp_net_tier
     j['pp_net_tier'] = self._pp_net_tier
@@ -289,12 +289,18 @@ class Megatron: # stems from class (ParaGraph)
     j['block_fw_flops_time'] = self._block_fw_flops_time
     j['block_fw_mem_accessed'] = self._block_fw_mem_accessed
     j['block_fw_mem_time'] = self._block_fw_mem_time
+    j['block_fw_time'] = self._block_fw_time
+    j['block_re_flops'] = self._block_re_flops
+    j['block_re_flops_time'] = self._block_re_flops_time
+    j['block_re_mem_accessed'] = self._block_re_mem_accessed
+    j['block_re_mem_time'] = self._block_re_mem_time
+    j['block_re_time'] = self._block_re_time
+    j['block_recompute_mem_saving'] = self._block_recompute_mem_saving
     j['block_bw_flops'] = self._block_bw_flops
     j['block_bw_flops_time'] = self._block_bw_flops_time
     j['block_bw_mem_accessed'] = self._block_bw_mem_accessed
     j['block_bw_mem_time'] = self._block_bw_mem_time
-    j['block_recompute_mem_saving'] = self._block_recompute_mem_saving
-    j['block_recompute_time'] = self._block_recompute_time
+    j['block_bw_time'] = self._block_bw_time
 
     j['block_fw_tp_size'] = self._block_fw_tp_size
     j['block_bw_tp_size'] = self._block_bw_tp_size
@@ -605,21 +611,6 @@ class Megatron: # stems from class (ParaGraph)
     self._compiled = True
 
   def _set_hardware_attributes(self):
-    # Determines compute and memory throughputs
-    self.vector_throughput = self.sys.compute_throughput('vector')
-    self.matrix_throughput = self.sys.compute_throughput('matrix')
-    self.mem_throughput = self.sys.memory_throughput(1)
-    self.offload_throughput = self.sys.memory_throughput(2)
-
-    self.log.debug("%s %s", "vector_throughput:",
-                   human_format(self.vector_throughput, 'throughput'))
-    self.log.debug("%s %s", "matrix_throughput:",
-                   human_format(self.matrix_throughput, 'throughput'))
-    self.log.debug("%s %s", "mem_throughput:",
-                   human_format(self.mem_throughput, 'bandwidth'))
-    self.log.debug("%s %s", "offload_throughput:",
-                   human_format(self.offload_throughput, 'bandwidth'))
-
     # TODO(nicmcd): there are possible permutations of T,P,D and the
     # corresponding network tiers that we are missing here. Write an algorithm
     # to search them all and choose the best.
@@ -686,15 +677,21 @@ class Megatron: # stems from class (ParaGraph)
     self._block_fw_flops_time = 0
     self._block_fw_mem_accessed = 0
     self._block_fw_mem_time = 0
+    self._block_fw_time = 0
     self._block_weight_space = 0
     self._block_act_space = 0
     if self.exe.training:
+      self._block_re_flops = 0
+      self._block_re_flops_time = 0
+      self._block_re_mem_accessed = 0
+      self._block_re_mem_time = 0
+      self._block_re_time = 0
+      self._block_recompute_mem_saving = 0
       self._block_bw_flops = 0
       self._block_bw_flops_time = 0
       self._block_bw_mem_accessed = 0
       self._block_bw_mem_time = 0
-      self._block_recompute_time = 0
-      self._block_recompute_mem_saving = 0
+      self._block_bw_time = 0
       self._block_weight_grad_space = 0
       self._block_weight_grad_space_no_sharding = 0
       self._block_act_grad_space = 0
@@ -702,31 +699,26 @@ class Megatron: # stems from class (ParaGraph)
 
     prev_layer_recompute = False
     for layer in self._megatron_block:
-      # Determines which throughput will be used for this layer
-      if isinstance(layer, (BatchMatMul, Linear)):
-        flops_throughput = self.matrix_throughput
-      else:
-        flops_throughput = self.vector_throughput
-
       # Add flops/bytes/times per layer
       self._block_fw_flops += layer.get_fw_flops()
-      self._block_fw_flops_time += \
-        layer.get_fw_flops() / flops_throughput
+      self._block_fw_flops_time += self.sys.compute_flops_time(layer, False)
       self._block_fw_mem_accessed += layer.get_fw_mem_accessed()
-      self._block_fw_mem_time += \
-        layer.get_fw_mem_accessed() / self.mem_throughput
+      self._block_fw_mem_time += self.sys.compute_mem_time(layer, False)
+      self._block_fw_time += self.sys.compute_processing_time(layer, False)
       if self.exe.training:
+        if layer.get_recompute_flag():
+          self._block_re_flops += self._block_fw_flops
+          self._block_re_flops_time += self._block_fw_flops_time
+          self._block_re_mem_accessed += self._block_fw_mem_accessed
+          self._block_re_mem_time += self._block_fw_mem_time
+          self._block_re_time += self.sys.compute_processing_time(layer, False)
+        if prev_layer_recompute:
+          self._block_recompute_mem_saving += layer.get_activation()
         self._block_bw_flops += layer.get_bw_flops()
-        self._block_bw_flops_time += \
-          layer.get_bw_flops() / flops_throughput
+        self._block_bw_flops_time += self.sys.compute_flops_time(layer, True)
         self._block_bw_mem_accessed += layer.get_bw_mem_accessed()
-        self._block_bw_mem_time += \
-          layer.get_bw_mem_accessed() / self.mem_throughput
-        self._block_recompute_time += layer.get_recompute_flag() * (
-          layer.get_fw_flops() / flops_throughput + \
-          layer.get_fw_mem_accessed() / self.mem_throughput)
-        self._block_recompute_mem_saving += prev_layer_recompute * (
-          layer.get_activation())
+        self._block_bw_mem_time += self.sys.compute_mem_time(layer, True)
+        self._block_bw_time += self.sys.compute_processing_time(layer, True)
 
       # Accumulate space requirements per block
       self._block_weight_space += layer.get_weight()
@@ -740,8 +732,6 @@ class Megatron: # stems from class (ParaGraph)
 
       self.log.debug("%s %s %s", layer.name, 'FW flops:',
                      human_format(layer.get_fw_flops(), 'flops'))
-      self.log.debug("%s %s %.3e", layer.name, 'FW flops time:',
-                     layer.get_fw_flops() / flops_throughput)
       self.log.debug("%s %s %s", layer.name, 'FW num inputs:',
                      human_format(layer.inputs_size, 'bytes'))
       self.log.debug("%s %s %s", layer.name, 'FW num output:',
@@ -750,15 +740,10 @@ class Megatron: # stems from class (ParaGraph)
                      human_format(layer.weight_space, 'bytes'))
       self.log.debug("%s %s %s", layer.name, 'FW mem:',
                      human_format(layer.get_fw_mem_accessed(), 'bytes'))
-      self.log.debug("%s %s %.3e", layer.name, 'FW mem time:',
-                     layer.get_fw_mem_accessed() / self.mem_throughput)
       self.log.debug("%s %s %.3e", layer.name, 'FW time:',
-                     layer.get_fw_flops() / flops_throughput + \
-                     layer.get_fw_mem_accessed() / self.mem_throughput)
+                     self.sys.compute_processing_time(layer, False))
       self.log.debug("%s %s %s", layer.name, 'BW flops:',
                      human_format(layer.get_bw_flops(), 'flops'))
-      self.log.debug("%s %s %.3e", layer.name, 'BW flops time:',
-                     layer.get_bw_flops() / flops_throughput)
       self.log.debug("%s %s %s", layer.name, 'BW num Wgrads:',
                      human_format(layer.weight_grads, 'bytes'))
       self.log.debug("%s %s %s", layer.name, 'BW num Agrads:',
@@ -767,12 +752,10 @@ class Megatron: # stems from class (ParaGraph)
                      human_format(layer.output_size, 'bytes'))
       self.log.debug("%s %s %s", layer.name, 'BW mem:',
                      human_format(layer.get_bw_mem_accessed(), 'bytes'))
-      self.log.debug("%s %s %.3e", layer.name, 'BW mem time:',
-                     layer.get_bw_mem_accessed() / self.mem_throughput)
-      self.log.debug("%s %s %.3e", layer.name, 'Recompute time:',
-                     layer.get_recompute_flag() * (
-                       layer.get_fw_flops() / flops_throughput + \
-                       layer.get_fw_mem_accessed() / self.mem_throughput))
+      self.log.debug("%s %s %.3e", layer.name, 'BW time:',
+                     self.sys.compute_processing_time(layer, True))
+      self.log.debug("%s %s %.3e", layer.name, 'Recompute:',
+                     layer.get_recompute_flag())
       self.log.debug("%s %s %s", layer.name, 'Recompute mem saving:',
                      human_format(prev_layer_recompute * \
                        layer.get_activation(), 'bytes'))
@@ -786,7 +769,6 @@ class Megatron: # stems from class (ParaGraph)
                      human_format(layer.get_activation_grad(), 'bytes'))
       self.log.debug("%s %s %s", layer.name, 'Optim:',
                      human_format(layer.get_optimizer(), 'bytes'))
-
       self.log.debug("%s %s %s", layer.name, 'Incremental Weight:',
                      human_format(self._block_weight_space, 'bytes'))
       self.log.debug("%s %s %s", layer.name, 'Incremental Act:',
@@ -858,7 +840,6 @@ class Megatron: # stems from class (ParaGraph)
     self.log.debug("%s %s", 'TP recomm size:',
                    human_format(self._block_recomm_size, 'bytes'))
 
-
   def _compute_batch_stats(self):
     """
     This function computes the statistics for a full batch. This uses the per
@@ -870,18 +851,17 @@ class Megatron: # stems from class (ParaGraph)
     self._fw_flops_time = mult * self._block_fw_flops_time
     self._fw_mem_accessed = mult * self._block_fw_mem_accessed
     self._fw_mem_time = mult * self._block_fw_mem_time
-    if self.exe.training:
-      self._bw_flops = mult * self._block_bw_flops
-      self._bw_flops_time = mult * self._block_bw_flops_time
-      self._bw_mem_accessed = mult * self._block_bw_mem_accessed
-      self._bw_mem_time = mult * self._block_bw_mem_time
-      self._recompute_time = mult * self._block_recompute_time
-    else:
-      self._bw_flops = 0
-      self._bw_flops_time = 0
-      self._bw_mem_accessed = 0
-      self._bw_mem_time = 0
-      self._recompute_time = 0
+    self._fw_time = mult * self._block_fw_time
+    self._re_flops = mult * self._block_re_flops
+    self._re_flops_time = mult * self._block_re_flops_time
+    self._re_mem_accessed = mult * self._block_re_mem_accessed
+    self._re_mem_time = mult * self._block_re_mem_time
+    self._re_time = mult * self._block_re_time
+    self._bw_flops = mult * self._block_bw_flops
+    self._bw_flops_time = mult * self._block_bw_flops_time
+    self._bw_mem_accessed = mult * self._block_bw_mem_accessed
+    self._bw_mem_time = mult * self._block_bw_mem_time
+    self._bw_time = mult * self._block_bw_time
 
     # Recommunication is caused by activation recomputation in
     # "full" mode. It is always 2 AllReduce operations
@@ -895,7 +875,7 @@ class Megatron: # stems from class (ParaGraph)
             self._tp_net.time(
               'reduce_scatter', self._block_recomm_size, self.exe.tensor_par) +
             self._tp_net.time(
-              'all_gather', self._block_recomm_size, self.exe.tensor_par)) 
+              'all_gather', self._block_recomm_size, self.exe.tensor_par))
         else:
           block_recomm_time = self._block_tp_comm_count * self._tp_net.time(
             'all_reduce', self._block_recomm_size, self.exe.tensor_par)
@@ -1013,29 +993,14 @@ class Megatron: # stems from class (ParaGraph)
     # L/gpu x microbatch_time x (p-1) x Tcycle, where cycle includes both
     # FW and BW passes, TP and PP communication for FW and BW passes
     # With full interleaving, we only need microbatch_time x (p-1) x Tcycle time
-    self._baseblock_fw_time = (
-      self._block_fw_flops_time + \
-      self._block_fw_mem_time + \
-      baseblock_fw_tp_time)
-    self._edgeblock_fw_time = (
-      self._block_fw_flops_time + \
-      self._block_fw_mem_time + \
-      edgeblock_fw_tp_time + \
-      chunk_fw_pp_time)
-    self._baseblock_bw_time = (
-      self._block_recompute_time + \
-      block_recomm_time + \
-      self._block_bw_flops_time + \
-      self._block_bw_mem_time + \
-      baseblock_bw_tp_time)
-    self._edgeblock_bw_time = (
-      self._block_recompute_time + \
-      block_recomm_time + \
-      self._block_bw_flops_time + \
-      self._block_bw_mem_time + \
-      edgeblock_bw_tp_time + \
-      chunk_bw_pp_time)
-
+    self._baseblock_fw_time = self._block_fw_time + baseblock_fw_tp_time
+    self._edgeblock_fw_time = (self._block_fw_time + edgeblock_fw_tp_time +
+                               chunk_fw_pp_time)
+    self._baseblock_bw_time = (self._block_re_time + block_recomm_time +
+                               self._block_bw_time + baseblock_bw_tp_time)
+    self._edgeblock_bw_time = (self._block_re_time + block_recomm_time +
+                               self._block_bw_time + edgeblock_bw_tp_time +
+                               chunk_bw_pp_time)
     chunk_fw_time = (
       (self._baseblocks_per_chunk * self._baseblock_fw_time) +
       (self._edgeblocks_per_chunk * self._edgeblock_fw_time))
@@ -1059,17 +1024,12 @@ class Megatron: # stems from class (ParaGraph)
     self._bubble_time = chunks_in_bubble * chunk_time - \
       bubble_reduction_time + extra_interleaving_bubbles * chunk_time
 
-    self.log.debug("%s %s", 'Block FW flops time:',
-                   self._block_fw_flops_time)
-    self.log.debug("%s %s", 'Block FW mem time:', self._block_fw_mem_time)
+    self.log.debug("%s %s", 'Block FW time:', self._block_fw_time)
     self.log.debug("%s %s", 'Baseblock FW time:', self._baseblock_fw_time)
     self.log.debug("%s %s", 'Edgeblock FW time:', self._edgeblock_fw_time)
-    self.log.debug("%s %s", 'Block BW flops time:',
-                   self._block_bw_flops_time)
-    self.log.debug("%s %s", 'Block BW mem time:', self._block_bw_mem_time)
-    self.log.debug("%s %s", 'Block BW recompute time:',
-                   self._block_recompute_time)
-    self.log.debug("%s %s", 'Block BW recomm time:', block_recomm_time)
+    self.log.debug("%s %s", 'Block REcomm time:', block_recomm_time)
+    self.log.debug("%s %s", 'Block RE time:', self._block_re_time)
+    self.log.debug("%s %s", 'Block BW time:', self._block_bw_time)
     self.log.debug("%s %s", 'Baseblock BW time:', self._baseblock_bw_time)
     self.log.debug("%s %s", 'Edgeblock BW time:', self._edgeblock_bw_time)
 
@@ -1223,12 +1183,17 @@ class Megatron: # stems from class (ParaGraph)
     assert self._fw_flops_time >= self._block_fw_flops_time
     assert self._fw_mem_accessed >= self._block_fw_mem_accessed
     assert self._fw_mem_time >= self._block_fw_mem_time
+    assert self._fw_time >= self._block_fw_time
+    assert self._re_flops >= self._block_re_flops
+    assert self._re_flops_time >= self._block_re_flops_time
+    assert self._re_mem_accessed >= self._block_re_mem_accessed
+    assert self._re_mem_time >= self._block_re_mem_time
+    assert self._re_time >= self._block_re_time
     assert self._bw_flops >= self._block_bw_flops
     assert self._bw_flops_time >= self._block_bw_flops_time
     assert self._bw_mem_accessed >= self._block_bw_mem_accessed
     assert self._bw_mem_time >= self._block_bw_mem_time
-    assert self._recompute_time >= self._block_recompute_time
-
+    assert self._bw_time >= self._block_bw_time
     assert self._weight_space >= self._block_weight_space
     assert self._act_space >= self._block_act_space
     assert self._act_checkpoint_size >= self._block_act_checkpoint_size
@@ -1289,12 +1254,10 @@ class Megatron: # stems from class (ParaGraph)
     return bw_offload_size
 
   def get_fw_time(self):
-    fw_time = self._fw_mem_time
-    fw_time += self._fw_flops_time
-    return fw_time
+    return self._fw_time
 
   def get_fw_offload_time(self):
-    return self._get_fw_offload_size() / self.offload_throughput
+    return self._get_fw_offload_size() / self.sys.memory_throughput(2)
 
   def get_fw_offload_overhead(self):
     baseblock_overhead = max(
@@ -1307,16 +1270,11 @@ class Megatron: # stems from class (ParaGraph)
     return full_overhead
 
   def get_bw_time(self):
-    if self.exe.training:
-      bw_time = self._bw_mem_time
-      bw_time += self._bw_flops_time
-      return bw_time
-    else:
-      return 0
+    return self._bw_time
 
   def get_bw_offload_time(self):
     if self.exe.training:
-      return self._get_bw_offload_size() / self.offload_throughput
+      return self._get_bw_offload_size() / self.sys.memory_throughput(2)
     else:
       return 0
 
@@ -1334,10 +1292,7 @@ class Megatron: # stems from class (ParaGraph)
       return 0
 
   def get_recompute_time(self):
-    if self.exe.training:
-      return self._recompute_time
-    else:
-      return 0
+    return self._re_time
 
   def get_recomm_time(self):
     if self.exe.training:

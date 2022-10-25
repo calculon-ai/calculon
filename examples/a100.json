@@ -9,6 +9,7 @@
   "mem_tier2_bw": 512,
   "mem_tier2_cap": 1024,
   "mem_tier2_eff": 0.9,
+  "processing_mode": "no_overlap",
   "net_tier1": {
     "bandwidth": 300,
     "efficiency": 0.8,

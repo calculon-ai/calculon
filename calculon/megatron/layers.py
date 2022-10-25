@@ -49,6 +49,7 @@ class Layer:
     # Before bytes_per_element set by SW config, we operate with just
     # parameter count, setting bytes_per_element to 1
     self.bytes_per_element = 1
+    self.processing_time = None
 
   def get_json(self):
     return {
@@ -159,6 +160,15 @@ class Layer:
       master_copy_size = 0
     return (master_copy_size + moments_size) / self.optim_sharding_num_proc
 
+  def set_processing_time(self, processing_time):
+    self.processing_time = processing_time
+
+  def get_processing_time(self):
+    return self.processing_time
+
+  def use_matrix_engine(self):
+    return False
+
 
 # We can factor all layers peculiarities and layer-wise optimizations by
 # rewriting parent class member functions when needed
@@ -179,6 +189,8 @@ class Linear(Layer):
                      needs_recompute=needs_recompute,
                      activation_not_stored=activation_not_stored)
 
+  def use_matrix_engine(self):
+    return True
 
 class BatchMatMul(Layer):
   def __init__(self, name, batch, size_a, contraction_size, size_b,
@@ -194,6 +206,8 @@ class BatchMatMul(Layer):
                      needs_recompute=needs_recompute,
                      activation_not_stored=activation_not_stored)
 
+  def use_matrix_engine(self):
+    return True
 
 # https://kratzert.github.io/2016/02/12/understanding-the-gradient-flow-through-the-batch-normalization-layer.html
 # https://cthorey.github.io./blog/2016/backpropagation/
