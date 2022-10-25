@@ -96,6 +96,10 @@ class Megatron: # stems from class (ParaGraph)
       self.in_network_reduction = False
       assert self.tensor_par_comm_type in ['ar', 'p2p_rs_ag', 'rs_ag']
       self._sequence_par = self.tensor_par_comm_type == 'rs_ag'
+      self.seq_par_ag_redo = cfg['seq_par_ag_redo']
+      if self.seq_par_ag_redo:
+        assert self.tensor_par_comm_type == 'rs_ag', "We only redo AG comm"
+        assert self._sequence_par, "We only redo AG with sequence parallelism"
       self._pipeline_par_rs_ag = \
         self.tensor_par_comm_type in ['p2p_rs_ag', 'rs_ag']
       self.data_par_overlap = cfg['data_par_overlap']
@@ -337,7 +341,9 @@ class Megatron: # stems from class (ParaGraph)
 
   def _build_attn_block(self):
     recompute_flag = self.exe.activation_recompute == "full"
-    recompute_attn_flag = self.exe.activation_recompute in ["full", "attn_only"]
+    recompute_attn_flag = self.exe.activation_recompute in \
+      ["full", "attn_only"]
+    recompute_ag_flag = recompute_flag or self.exe.seq_par_ag_redo
 
     assert self.app.hidden % self.exe.tensor_par == 0, (
       f"We should split hidden={self.app.hidden} between"
@@ -350,12 +356,22 @@ class Megatron: # stems from class (ParaGraph)
         f"We should split hidden={self.app.hidden} between"
         f" {self.app.attn_heads} attn_heads evenly")
 
+    self._megatron_block.append(Fork(
+      "AttnBlock_Fork",
+      pick(self.exe._sequence_par, self._seq_par_activation_size,
+           self._activation_size),
+      2,
+      needs_recompute=recompute_flag,
+      # We account this activation when consider Residual layer
+      activation_not_stored=True))
     self._megatron_block.append(LayerNorm(
       "AttnBlock_LayerNorm",
       pick(self.exe._sequence_par, self._seq_par_activation_size,
            self._activation_size),
       self.app.hidden,
-      needs_recompute=recompute_flag))
+      needs_recompute=recompute_flag,
+      # We account this activation when consider Residual layer
+      activation_not_stored=True))
     self._megatron_block.append(TPComm(
       "AttnBlock_F",
       self._activation_size,
@@ -366,28 +382,33 @@ class Megatron: # stems from class (ParaGraph)
       split_comm=self.exe._sequence_par,
       conjugate=False,
       in_network_reduction=self.exe.in_network_reduction,
-      needs_recompute=recompute_flag))
+      needs_recompute=recompute_ag_flag))
     self._megatron_block.append(Fork(
-      "AttnBlock_Fork",
-      self._activation_size, 3))
+      "AttnBlock_Multihead_Fork",
+      self._activation_size,
+      3,
+      needs_recompute=recompute_flag))
     self._megatron_block.append(Linear(
       "AttnBlock_Key",
       self._batch_seq,
       self.app.hidden,
       self.app.hidden // self.exe.tensor_par,
-      needs_recompute=recompute_flag))
+      needs_recompute=recompute_flag,
+      activation_not_stored=True))
     self._megatron_block.append(Linear(
       "AttnBlock_Query",
       self._batch_seq,
       self.app.hidden,
       self.app.hidden // self.exe.tensor_par,
-      needs_recompute=recompute_flag))
+      needs_recompute=recompute_flag,
+      activation_not_stored=True))
     self._megatron_block.append(Linear(
       "AttnBlock_Value",
       self._batch_seq,
       self.app.hidden,
       self.app.hidden // self.exe.tensor_par,
-      needs_recompute=recompute_flag))
+      needs_recompute=recompute_flag,
+      activation_not_stored=True))
     self._megatron_block.append(BatchMatMul(
       "AttnBlock_Multihead_Key_Query",
       self.exe.microbatch_size * self.app.attn_heads // self.exe.tensor_par,
@@ -428,7 +449,9 @@ class Megatron: # stems from class (ParaGraph)
       split_comm=self.exe._sequence_par,
       conjugate=True,
       in_network_reduction=self.exe.in_network_reduction,
-      needs_recompute=recompute_flag))
+      needs_recompute=recompute_flag,
+      # We don't store input to it because on BW we do all_gather
+      activation_not_stored=self.exe.seq_par_ag_redo))
 
     self._megatron_block.append(DropOut(
       "AttnBlock_DropOut",
@@ -445,13 +468,23 @@ class Megatron: # stems from class (ParaGraph)
 
   def _build_mlp_block(self):
     recompute_flag = self.exe.activation_recompute == "full"
+    recompute_ag_flag = recompute_flag or self.exe.seq_par_ag_redo
 
+    self._megatron_block.append(Fork(
+      "MlpBlock_Fork",
+      pick(self.exe._sequence_par, self._seq_par_activation_size,
+           self._activation_size),
+      2,
+      needs_recompute=recompute_flag,
+      activation_not_stored=True))
     self._megatron_block.append(LayerNorm(
       "MlpBlock_LayerNorm",
       pick(self.exe._sequence_par, self._seq_par_activation_size,
            self._activation_size),
       self.app.hidden,
-      needs_recompute=recompute_flag))
+      needs_recompute=recompute_flag,
+      # We account this activation when consider Residual layer
+      activation_not_stored=True))
     self._megatron_block.append(TPComm(
       "MlpBlock_F",
       self._activation_size,
@@ -462,7 +495,7 @@ class Megatron: # stems from class (ParaGraph)
       split_comm=self.exe._sequence_par,
       conjugate=False,
       in_network_reduction=self.exe.in_network_reduction,
-      needs_recompute=recompute_flag))
+      needs_recompute=recompute_ag_flag))
     self._megatron_block.append(Linear(
       "MlpBlock_Mlp1",
       self._batch_seq,
@@ -489,7 +522,9 @@ class Megatron: # stems from class (ParaGraph)
       split_comm=self.exe._sequence_par,
       conjugate=True,
       in_network_reduction=self.exe.in_network_reduction,
-      needs_recompute=recompute_flag))
+      needs_recompute=recompute_flag,
+      # We don't store input to it because on BW we do all_gather
+      activation_not_stored=self.exe.seq_par_ag_redo))
 
     self._megatron_block.append(DropOut(
       "MlpBlock_DropOut",
@@ -663,6 +698,7 @@ class Megatron: # stems from class (ParaGraph)
       self._block_act_grad_space = 0
       self._block_optimizer_space = 0
 
+    prev_layer_recompute = False
     for layer in self._megatron_block:
       # Determines which throughput will be used for this layer
       if isinstance(layer, (BatchMatMul, Linear)):
@@ -687,7 +723,7 @@ class Megatron: # stems from class (ParaGraph)
         self._block_recompute_time += layer.get_recompute_flag() * (
           layer.get_fw_flops() / flops_throughput + \
           layer.get_fw_mem_accessed() / self.mem_throughput)
-        self._block_recompute_mem_saving += layer.get_recompute_flag() * (
+        self._block_recompute_mem_saving += prev_layer_recompute * (
           layer.get_activation())
 
       # Accumulate space requirements per block
@@ -736,7 +772,7 @@ class Megatron: # stems from class (ParaGraph)
                        layer.get_fw_flops() / flops_throughput + \
                        layer.get_fw_mem_accessed() / self.mem_throughput))
       self.log.debug("%s %s %s", layer.name, 'Recompute mem saving:',
-                     human_format(layer.get_recompute_flag() * \
+                     human_format(prev_layer_recompute * \
                        layer.get_activation(), 'bytes'))
       self.log.debug("%s %s %s", layer.name, 'Weight:',
                      human_format(layer.get_weight(), 'bytes'))
@@ -761,6 +797,7 @@ class Megatron: # stems from class (ParaGraph)
                      human_format(self._block_act_grad_space, 'bytes'))
       self.log.debug("%s %s %s", layer.name, 'Incremental Optim:',
                      human_format(self._block_optimizer_space, 'bytes'))
+      prev_layer_recompute = layer.get_recompute_flag()
 
     # Megatron has 2 communication operations per block when using tensor
     # parallelism
@@ -845,6 +882,10 @@ class Megatron: # stems from class (ParaGraph)
       self.exe.activation_recompute == 'full':
       block_recomm_time = self._block_tp_comm_count * self._tp_net.time(
         'all_reduce', self._block_recomm_size, self.exe.tensor_par)
+    elif self.exe.training and self.exe.tensor_par > 1 and \
+      self.exe.seq_par_ag_redo:
+      block_recomm_time = self._block_tp_comm_count * self._tp_net.time(
+        'all_gather', self._block_recomm_size, self.exe.tensor_par)
     else:
       block_recomm_time = 0
 

@@ -4,7 +4,7 @@
   "vector_tflops": 78,
   "vector_flop_eff": 0.9,
   "mem_tier1_bw": 2048,
-  "mem_tier1_cap": 80,
+  "mem_tier1_cap": 100,
   "mem_tier1_eff": 0.9,
   "mem_tier2_bw": 512,
   "mem_tier2_cap": 1024,
