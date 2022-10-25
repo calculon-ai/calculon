@@ -60,15 +60,13 @@ class System:
     else:
       assert False, f'Bad network tier ID: {tier}'
 
-  def _get_flops_tput(self, layer, bw):
-    flops = layer.get_bw_flops() if bw else layer.get_fw_flops()
-    if layer.use_matrix_engine():
-      return self.matrix.throughput(flops)
-    return self.vector.throughput(flops)
-
   def compute_flops_time(self, layer, bw):
     flops = layer.get_bw_flops() if bw else layer.get_fw_flops()
-    return flops / self._get_flops_tput(layer, bw)
+    if layer.use_matrix_engine():
+      throughput = self.matrix.throughput(flops)
+    else:
+      throughput = self.vector.throughput(flops)
+    return flops / throughput
 
   def compute_mem_time(self, layer, bw):
     mem = layer.get_bw_mem_accessed() if bw else layer.get_fw_mem_accessed()

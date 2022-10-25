@@ -1,11 +1,23 @@
 {
   "matrix" : {
     "tflops": 312,
-    "efficiency": 0.9
+    "gflops_efficiency": [
+      [128, 0.9],
+      [50, 0.9],
+      [10, 0.9],
+      [1, 0.9],
+      [0, 0.9]
+    ]
   },
   "vector": {
     "tflops": 78,
-    "efficiency": 0.9
+    "gflops_efficiency": [
+      [128, 0.9],
+      [50, 0.9],
+      [10, 0.9],
+      [1, 0.9],
+      [0, 0.9]
+    ]
   },
   "mem_tier1_bw": 2048,
   "mem_tier1_cap": 80,

@@ -20,15 +20,21 @@ class Processor:
 
   def __init__(self, cfg):
     self._flops = cfg['tflops'] * 1e12
-    self._efficiency = cfg['efficiency']
-    assert 0 < self._efficiency <= 1.0
+    self._efficiency = []
+    for gflops, eff in cfg['gflops_efficiency']:
+      flops = gflops * 1e9
+      assert 0 < eff <= 1.0
+      self._efficiency.append((flops, eff))
 
   @property
   def flops(self):
     return self._flops
 
   def efficiency(self, op_flops):
-    return self._efficiency
+    for flops, eff in self._efficiency:
+      if op_flops >= flops:
+        return eff
+    assert False, f'OP flops {op_flops} wasn\'t covered'
 
   def throughput(self, op_flops):
     return self._flops * self.efficiency(op_flops)
