@@ -14,6 +14,7 @@
     "bandwidth": 450,
     "efficiency": 0.8,
     "size": 256,
+    "latency": 0.000001,
     "ops": {
       "p2p": 1.0,
       "reduce_scatter": 1.0,
@@ -26,6 +27,7 @@
     "bandwidth": 50,
     "efficiency": 0.9,
     "size": 65536,
+    "latency": 0.000002,
     "ops": {
       "p2p": 1.0,
       "reduce_scatter": 1.0,

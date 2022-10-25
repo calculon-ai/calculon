@@ -34,7 +34,7 @@ class Network:
     return valid
 
   def __init__(self, cfg):
-    assert set(['bandwidth', 'efficiency', 'size', 'ops',
+    assert set(['bandwidth', 'efficiency', 'size', 'latency', 'ops',
                 'collective_minus1_scalar']) == set(cfg.keys())
     self._bw = cfg['bandwidth'] * 1e9  # Specified in GB/s
     assert self._bw > 0
@@ -42,6 +42,7 @@ class Network:
     assert 0 < self._eff <= 1.0
     self._size = cfg['size']
     assert self._size >= 0
+    self._latency = cfg['latency']
     self._ops = cfg['ops']
     assert all(Network._valid_op(k, v) for k, v in self._ops.items())
     assert set(self._ops.keys()) == Network.kNetOps
@@ -71,4 +72,5 @@ class Network:
     assert op_size >= 0
     if self._col_m1_scalar and op in Network.kCollectives:
       op_size *= ((comm_size - 1) / comm_size)
-    return op_size / (self._bw * self._eff * self._ops[op])
+    op_time = op_size / (self._bw * self._eff * self._ops[op])
+    return self._latency + op_time
