@@ -16,21 +16,18 @@
 """
 
 from .network import *
+from .processor import *
 
 class System:
   """Configuration for a system."""
 
   def __init__(self, cfg):
+    self.cfg = cfg
+    self.matrix = Processor(cfg['matrix'])
+    self.vector = Processor(cfg['vector'])
+
     # bw = GB/s
     # cap = GB
-    self.cfg = cfg
-    self.matrix_flops = cfg['matrix_tflops'] * 1e12
-    self.matrix_flop_eff = cfg['matrix_flop_eff']
-    assert 0 < self.matrix_flop_eff <= 1.0
-    self.vector_flops = cfg['vector_tflops'] * 1e12
-    self.vector_flop_eff = cfg['vector_flop_eff']
-    assert 0 < self.vector_flop_eff <= 1.0
-
     self.mem_tier1_bw = cfg['mem_tier1_bw'] * 1e9
     self.mem_tier1_cap = cfg['mem_tier1_cap'] * 1024**3
     self.mem_tier1_eff = cfg['mem_tier1_eff']
@@ -46,14 +43,6 @@ class System:
 
     self.net_tier1 = Network(cfg['net_tier1'])
     self.net_tier2 = Network(cfg['net_tier2'])
-
-  def compute_throughput(self, type):
-    if type == 'vector':
-      return self.vector_flops * self.vector_flop_eff
-    elif type == 'matrix':
-      return self.matrix_flops * self.matrix_flop_eff
-    else:
-      assert False
 
   def memory_throughput(self, tier):
     if tier == 1:
@@ -71,20 +60,21 @@ class System:
     else:
       assert False, f'Bad network tier ID: {tier}'
 
-  def _get_flops_tput(self, layer):
-    if layer.use_matrix_engine():
-      return self.compute_throughput('matrix')
-    return self.compute_throughput('vector')
-
-  def compute_flops_time(self, layer, bw=False):
+  def _get_flops_tput(self, layer, bw):
     flops = layer.get_bw_flops() if bw else layer.get_fw_flops()
-    return flops / self._get_flops_tput(layer)
+    if layer.use_matrix_engine():
+      return self.matrix.throughput(flops)
+    return self.vector.throughput(flops)
 
-  def compute_mem_time(self, layer, bw=False):
+  def compute_flops_time(self, layer, bw):
+    flops = layer.get_bw_flops() if bw else layer.get_fw_flops()
+    return flops / self._get_flops_tput(layer, bw)
+
+  def compute_mem_time(self, layer, bw):
     mem = layer.get_bw_mem_accessed() if bw else layer.get_fw_mem_accessed()
     return mem / self.memory_throughput(1)
 
-  def compute_processing_time(self, layer, bw=False):
+  def compute_processing_time(self, layer, bw):
     return self._compute_processing_time(
       self.compute_flops_time(layer, bw),
       self.compute_mem_time(layer, bw)
