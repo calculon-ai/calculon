@@ -48,8 +48,6 @@ class Network:
     self._col_m1_scalar = cfg['collective_minus1_scalar']
     assert isinstance(self._col_m1_scalar, bool)
 
-    # TODO(nicmcd): support reduction algorithms with (n-1)/n overhead scaling
-
   @property
   def size(self):
     return self._size
