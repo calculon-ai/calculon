@@ -826,8 +826,16 @@ class Megatron: # stems from class (ParaGraph)
       self._block_fw_pp_size = 0
 
     # Sets the recommunication operation size
-    if self.exe.training and self.exe.activation_recompute == "full":
-      self._block_recomm_size = self._block_fw_tp_size
+    if self.exe.training:
+      if self.exe.activation_recompute == "full":
+        self._block_recomm_size = self._block_fw_tp_size
+      else if self.exe.seq_par_ag_redo:
+        # only works when recompuet is attn_only or none with seq_par
+        self._block_recomm_size = self._block_fw_tp_size
+      else:
+        self._block_recomm_size = 0
+    else:
+      self._block_recomm_size = 0
 
     # When training, BW sizes for TP and PP are same as FW
     if self.exe.training:
@@ -877,16 +885,23 @@ class Megatron: # stems from class (ParaGraph)
     # "full" mode. It is always 2 AllReduce operations
     # We consider full activation recomputation to start with the full
     # activation checkpoint  (not distributed across TP nodes)
-    # TODO(misaev): think if we want to introduce split_act_cp optimization
-    # TODO(misaev): rework recomm
-    if self.exe.training and self.exe.tensor_par > 1 and \
-      self.exe.activation_recompute == 'full':
-      block_recomm_time = self._block_tp_comm_count * self._tp_net.time(
-        'all_reduce', self._block_recomm_size, self.exe.tensor_par)
-    elif self.exe.training and self.exe.tensor_par > 1 and \
-      self.exe.seq_par_ag_redo:
-      block_recomm_time = self._block_tp_comm_count * self._tp_net.time(
-        'all_gather', self._block_recomm_size, self.exe.tensor_par)
+    # TODO(misaev): think if we want to introduce act_cp_sharding optimization
+    if self.exe.training and self.exe.tensor_par > 1:
+      if self.exe.activation_recompute == 'full':
+        if self.exe._sequence_par:
+          block_recomm_time = self._block_tp_comm_count * (
+            self._tp_net.time(
+              'reduce_scatter', self._block_recomm_size, self.exe.tensor_par) +
+            self._tp_net.time(
+              'all_gather', self._block_recomm_size, self.exe.tensor_par)) 
+        else:
+          block_recomm_time = self._block_tp_comm_count * self._tp_net.time(
+            'all_reduce', self._block_recomm_size, self.exe.tensor_par)
+      elif self.exe.seq_par_ag_redo:
+        block_recomm_time = self._block_tp_comm_count * self._tp_net.time(
+          'all_gather', self._block_recomm_size, self.exe.tensor_par)
+      else:
+        block_recomm_time = 0
     else:
       block_recomm_time = 0
 
