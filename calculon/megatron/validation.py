@@ -47,7 +47,7 @@ kProfile = {
 def get_files(model, mode):
   assert model in kModels
   assert mode in kModes
-  app = f'validation/{model}.json'
+  app = f'examples/{model}.json'
   exe = f'validation/{model}_{mode}.json'
   return app, exe
 
@@ -95,7 +95,7 @@ class Validation(calculon.CommandLine):
         data[model][mode]['memory_req'] = stats["proc_mem_tier1_cap_req"]
 
     print(',|,full,,,,|,seqsel,,,,')
-    print('Model,|,Profile,Calc,Delta,Mem,|,Profile,Calc,Delta,Mem,')
+    print('Model,|,Profile,Calc,Delta,GiB,|,Profile,Calc,Delta,GiB,')
     abs_error = 0
     error_sum = 0
     for model in kModels:
@@ -106,8 +106,8 @@ class Validation(calculon.CommandLine):
         d = 100*(1-a/p)
         abs_error += math.fabs(d)
         error_sum += d
-        m = data[model][mode]['memory_req']
-        print(f'|,{p},{a:.2f},{d:.2f}%,{m},', end='')
+        m = data[model][mode]['memory_req'] / (1024**3)
+        print(f'|,{p},{a:.2f},{d:.2f}%,{m:.2f},', end='')
       print()
     print(',')
     print(f'Abs Error,{abs_error:.2f}')
