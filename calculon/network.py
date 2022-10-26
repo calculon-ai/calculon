@@ -72,5 +72,6 @@ class Network:
     assert op_size >= 0
     if self._col_m1_scalar and op in Network.kCollectives:
       op_size *= ((comm_size - 1) / comm_size)
-    op_time = op_size / (self._bw * self._eff * self._ops[op])
+    op_size *= self._ops[op]
+    op_time = op_size / (self._bw * self._eff)
     return self._latency + op_time
