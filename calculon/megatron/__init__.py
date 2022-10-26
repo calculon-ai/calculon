@@ -21,4 +21,5 @@ from .megatron import *
 # Command lines
 from .optimal_execution import OptimalExecution
 from .parameter_calculator import ParameterCalculator
+from .validation import Validation
 from .runner import Runner

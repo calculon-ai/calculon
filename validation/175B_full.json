@@ -1,0 +1,19 @@
+{
+  "num_procs": 64,
+  "tensor_par": 8,
+  "pipeline_par": 8,
+  "data_par": 1,
+  "batch_size": 64,
+  "microbatch_size": 1,
+  "datatype": "float16",
+  "activation_recompute": "full",
+  "pipeline_interleaving": 1,
+  "optimizer_sharding": false,
+  "tensor_par_comm_type": "ar",
+  "seq_par_ag_redo": false,
+  "data_par_overlap": false,
+  "weight_offload": false,
+  "activations_offload": false,
+  "optimizer_offload": false,
+  "training": true
+}
