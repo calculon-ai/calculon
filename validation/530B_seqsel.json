@@ -7,7 +7,7 @@
   "microbatch_size": 1,
   "datatype": "float16",
   "activation_recompute": "attn_only",
-  "pipeline_interleaving": 1,
+  "pipeline_interleaving": 3,
   "optimizer_sharding": false,
   "tensor_par_comm_type": "rs_ag",
   "seq_par_ag_redo": true,

@@ -1160,12 +1160,12 @@ class Megatron: # stems from class (ParaGraph)
       self._optimizer_space = 0
 
   def _check_mem_caps(self):
-    if self.get_mem_tier1_cap_req() > self.sys.mem_tier1_cap:
+    if self.get_mem_tier1_cap_req() > self.sys.mem1.capacity:
       raise self.Error(f'Mem tier1 needs '
                        f'{human_format(self.get_mem_tier1_cap_req(), "bytes")} '
                        f'but only has '
                        f'{human_format(self.sys.mem_tier1_cap, "bytes")}')
-    if self.get_mem_tier2_cap_req() > self.sys.mem_tier2_cap:
+    if self.get_mem_tier2_cap_req() > self.sys.mem2.capacity:
       raise self.Error(f'Mem tier2 needs '
                        f'{human_format(self.get_mem_tier2_cap_req(), "bytes")} '
                        f'but only has '
@@ -1257,7 +1257,7 @@ class Megatron: # stems from class (ParaGraph)
     return self._fw_time
 
   def get_fw_offload_time(self):
-    return self._get_fw_offload_size() / self.sys.memory_throughput(2)
+    return self.sys.compute_offload_time(self._get_fw_offload_size())
 
   def get_fw_offload_overhead(self):
     baseblock_overhead = max(
@@ -1274,7 +1274,7 @@ class Megatron: # stems from class (ParaGraph)
 
   def get_bw_offload_time(self):
     if self.exe.training:
-      return self._get_bw_offload_size() / self.sys.memory_throughput(2)
+      return self.sys.compute_offload_time(self._get_bw_offload_size())
     else:
       return 0
 

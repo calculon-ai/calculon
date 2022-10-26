@@ -96,23 +96,24 @@ class Validation(calculon.CommandLine):
 
     print(',|,full,,,,|,seqsel,,,,')
     print('Model,|,Profile,Calc,Delta,GiB,|,Profile,Calc,Delta,GiB,')
+    max_error = 0
     abs_error = 0
-    error_sum = 0
     for model in kModels:
       print(f'{model},', end='')
       for mode in kModes:
         p = data[model][mode]['profile_time']
         a = data[model][mode]['actual_time']
         d = 100*(1-a/p)
+        if math.fabs(d) > max_error:
+          max_error = math.fabs(d)
         abs_error += math.fabs(d)
-        error_sum += d
         m = data[model][mode]['memory_req'] / (1024**3)
         print(f'|,{p},{a:.2f},{d:.2f}%,{m:.2f},', end='')
       print()
     print(',')
-    print(f'Abs Error,{abs_error:.2f}')
-    ave_error = error_sum / (len(kModels) * len(kModes))
-    print(f'Ave Error,{ave_error:.2f}')
+    ave_error = abs_error / (len(kModels) * len(kModes))
+    print(f'Ave,,{ave_error:.2f}%')
+    print(f'Max,,{max_error:.2f}%')
 
     return 0
 

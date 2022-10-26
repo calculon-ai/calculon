@@ -16,23 +16,37 @@
       [0, 0.1]
     ]
   },
-  "mem_tier1_bw": 2048,
-  "mem_tier1_cap": 80,
-  "mem_tier1_eff": 0.9,
-  "mem_tier2_bw": 512,
-  "mem_tier2_cap": 1024,
-  "mem_tier2_eff": 0.9,
+  "mem1": {
+    "GiB": 80,
+    "GBps": 2048,
+    "MB_efficiency": [
+      [100, 0.95],
+      [10, 0.90],
+      [1, 0.7],
+      [0, 0.3]
+    ]
+  },
+  "mem2": {
+    "GiB": 1024,
+    "GBps": 512,
+    "MB_efficiency": [
+      [100, 0.95],
+      [10, 0.9],
+      [1, 0.7],
+      [0, 0.3]
+    ]
+  },
   "processing_mode": "no_overlap",
   "net_tier1": {
     "bandwidth": 300,
-    "efficiency": 0.8,
+    "efficiency": 0.6,
     "size": 8,
     "latency": 0.000001,
     "ops": {
       "p2p": 1.0,
       "reduce_scatter": 1.0,
       "all_gather": 1.0,
-      "all_reduce": 2.0
+      "all_reduce": 1.5
     },
     "collective_minus1_scalar": true
   },
@@ -42,7 +56,7 @@
     "size": 65536,
     "latency": 0.000002,
     "ops": {
-      "p2p": 1.0,
+      "p2p": 0.5,
       "reduce_scatter": 1.0,
       "all_gather": 1.0,
       "all_reduce": 1.0

@@ -15,6 +15,7 @@
  * limitations under the License.
 """
 
+from .memory import *
 from .network import *
 from .processor import *
 
@@ -26,6 +27,10 @@ class System:
     self.matrix = Processor(cfg['matrix'])
     self.vector = Processor(cfg['vector'])
 
+    self.mem1 = Memory(cfg['mem1'])
+    self.mem2 = Memory(cfg['mem2'])
+
+    """
     # bw = GB/s
     # cap = GB
     self.mem_tier1_bw = cfg['mem_tier1_bw'] * 1e9
@@ -37,6 +42,7 @@ class System:
     self.mem_tier2_cap = cfg['mem_tier2_cap'] * 1024**3
     self.mem_tier2_eff = cfg['mem_tier2_eff']
     assert 0 < self.mem_tier2_eff <= 1.0
+    """
 
     self.proc_mode = cfg['processing_mode']
     assert self.proc_mode in ['roofline', 'no_overlap']
@@ -44,6 +50,7 @@ class System:
     self.net_tier1 = Network(cfg['net_tier1'])
     self.net_tier2 = Network(cfg['net_tier2'])
 
+  """
   def memory_throughput(self, tier):
     if tier == 1:
       return self.mem_tier1_bw * self.mem_tier1_eff
@@ -51,6 +58,7 @@ class System:
       return self.mem_tier2_bw * self.mem_tier2_eff
     else:
       assert False
+  """
 
   def get_network(self, tier):
     if tier == 1:
@@ -68,9 +76,12 @@ class System:
       throughput = self.vector.throughput(flops)
     return flops / throughput
 
+  def compute_offload_time(self, size):
+    return size / self.mem2.throughput(size)
+
   def compute_mem_time(self, layer, bw):
     mem = layer.get_bw_mem_accessed() if bw else layer.get_fw_mem_accessed()
-    return mem / self.memory_throughput(1)
+    return mem / self.mem1.throughput(mem)
 
   def compute_processing_time(self, layer, bw):
     return self._compute_processing_time(
