@@ -110,14 +110,10 @@ class Megatron: # stems from class (ParaGraph)
         assert self.data_par > 1, "We perform DP comm overlap with DP > 1"
       self.weight_offload = cfg['weight_offload']
       self.activations_offload = cfg['activations_offload']
-      if self.activation_recompute == 'full':
-        assert not self.activations_offload
       self.optimizer_offload = cfg['optimizer_offload']
       if self.optimizer_offload:
         assert self.training, \
           "We only perform optimizer offloading during training"
-      if self.activations_offload:
-        assert self.activation_recompute != 'full'
 
   # This is used for errors where the user may not be fully aware of
   # limitations. Use it like this:
@@ -1242,7 +1238,10 @@ class Megatron: # stems from class (ParaGraph)
     else:
       weight_offload_size = 0
     if self.exe.activations_offload:
-      act_offload_size = self._block_act_space
+      if self.exe.activation_recompute != 'full':
+        act_offload_size = self._block_act_space
+      else:
+        act_offload_size = self._block_act_checkpoint_size
     else:
       act_offload_size = 0
     return max(weight_offload_size, act_offload_size)
@@ -1253,7 +1252,10 @@ class Megatron: # stems from class (ParaGraph)
       if self.exe.weight_offload:
         bw_offload_size += self._block_weight_space
       if self.exe.activations_offload:
-        bw_offload_size += self._block_act_space
+        if self.exe.activation_recompute != 'full':
+          bw_offload_size += self._block_act_space
+        else:
+          bw_offload_size += self._block_act_checkpoint_size
       if self.exe.optimizer_offload:
         bw_offload_size += \
           self._block_weight_grad_space + self._block_optimizer_space
@@ -1407,11 +1409,17 @@ class Megatron: # stems from class (ParaGraph)
     else:
       tier1 += self.get_weight_space()
     if self.exe.activations_offload:
-      tier1 += self._block_act_space * 2
-      tier2 += self.get_act_space()
+      if self.exe.activation_recompute != 'full':
+        tier1 += self._block_act_space * 2
+        tier2 += self.get_act_space()
+        assert self.get_act_checkpoint_size() == 0
+      else:
+        tier1 += self._block_act_checkpoint_size * 2
+        tier1 += self._block_act_space
+        tier2 += self.get_act_checkpoint_size()
     else:
       tier1 += self.get_act_space()
-    tier1 += self.get_act_checkpoint_size()
+      tier1 += self.get_act_checkpoint_size()
     if self.exe.optimizer_offload:
       # We keep one set of non-sharded weight grads after compute before
       # reduction, and one sharded set for offloading
@@ -1436,10 +1444,14 @@ class Megatron: # stems from class (ParaGraph)
     # We should be able to offload (write) activation during FW pass and
     # prefetch it (read) during BW pass for block (i-1)
     # After BW pass activations are discarded
+    if self.exe.activation_recompute != 'full':
+      act_offload_size = self._block_act_space
+    else:
+      act_offload_size = self._block_act_checkpoint_size
     offload_time = min(
       self._baseblock_fw_time - self._block_fw_mem_time,
       self._edgeblock_fw_time - self._block_fw_mem_time)
-    return self._block_act_space / offload_time
+    return act_offload_size / offload_time
 
   def get_weight_offload_bw_req(self):
     # We should be able to offload (write) and prefetch (read) weights both
