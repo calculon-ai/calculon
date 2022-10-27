@@ -1164,12 +1164,12 @@ class Megatron: # stems from class (ParaGraph)
       raise self.Error(f'Mem tier1 needs '
                        f'{human_format(self.get_mem_tier1_cap_req(), "bytes")} '
                        f'but only has '
-                       f'{human_format(self.sys.mem_tier1_cap, "bytes")}')
+                       f'{human_format(self.sys.mem1.capacity, "bytes")}')
     if self.get_mem_tier2_cap_req() > self.sys.mem2.capacity:
       raise self.Error(f'Mem tier2 needs '
                        f'{human_format(self.get_mem_tier2_cap_req(), "bytes")} '
                        f'but only has '
-                       f'{human_format(self.sys.mem_tier2_cap, "bytes")}')
+                       f'{human_format(self.sys.mem2.capacity, "bytes")}')
 
   def _misc_sanity_checks(self):
     if self.exe.tensor_par == 1:
@@ -1219,7 +1219,8 @@ class Megatron: # stems from class (ParaGraph)
         assert self.get_recompute_time() > 0
         assert self.get_act_checkpoint_size() == 0
       else:
-        assert self.get_recompute_time() == 0
+        if not self.exe.seq_par_ag_redo:
+          assert self.get_recompute_time() == 0
         assert self.get_act_checkpoint_size() == 0
 
 
