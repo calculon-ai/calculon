@@ -1237,18 +1237,23 @@ class Megatron: # stems from class (ParaGraph)
     self._executed = True
 
   def _get_fw_offload_size(self):
-    fw_offload_size = 0
     if self.exe.weight_offload:
-      fw_offload_size += self._block_weight_space
+      weight_offload_size = self._block_weight_space
+    else:
+      weight_offload_size = 0
     if self.exe.activations_offload:
-      fw_offload_size += self._block_act_space
-    return fw_offload_size
+      act_offload_size = self._block_act_space
+    else:
+      act_offload_size = 0
+    return max(weight_offload_size, act_offload_size)
 
   def _get_bw_offload_size(self):
     bw_offload_size = 0
     if self.exe.training:
       if self.exe.weight_offload:
         bw_offload_size += self._block_weight_space
+      if self.exe.activations_offload:
+        bw_offload_size += self._block_act_space
       if self.exe.optimizer_offload:
         bw_offload_size += \
           self._block_weight_grad_space + self._block_optimizer_space
