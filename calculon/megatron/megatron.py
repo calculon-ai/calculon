@@ -1141,8 +1141,9 @@ class Megatron: # stems from class (ParaGraph)
         self.log.debug('Blocks per chunk: %d', self._blocks_per_chunk)
         self.log.debug('Num overlappable chunks: %d', num_overlappable_chunks)
         self.log.debug('Last chunk size: %d', last_chunk_overlap_size)
-        self.log.debug('Chunk exposed time: %.3e',\
-          overlappable_chunks_exposed_time/num_overlappable_chunks)
+        self.log.debug('Chunk exposed time: %.3e', max(0, \
+          chunk_dp_time + num_overlapped_pp * chunk_bw_pp_time - \
+          overlap_window))
         self.log.debug('Last chunk exposed time: %.3e', last_chunk_exposed_time)
       else:
         self._dp_comm_time = self._blocks_per_proc * self._block_dp_time
