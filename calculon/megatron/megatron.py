@@ -159,6 +159,10 @@ class Megatron: # stems from class (ParaGraph)
     local_batch_size = global_batch_size // data_par
     yield from Megatron._factors(local_batch_size)
 
+  @staticmethod
+  def can_redo_ag(tensor_par_comm_type, activation_recompute):
+    return tensor_par_comm_type == 'rs_ag' and activation_recompute != 'full'
+
   def __init__(self, app, log):
     assert isinstance(app, self.Application)
     self.app = app

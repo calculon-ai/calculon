@@ -19,6 +19,7 @@ import datetime
 import json
 import logging
 import multiprocessing as mp
+import os
 
 import calculon
 from calculon.util import pick
@@ -40,48 +41,51 @@ def search(debug, num_procs, app, syst, tp, pp):
       for activation_recompute in ['full', 'attn_only', 'none']:
         for optimizer_sharding in pick(dp>1, [True, False], [False]):
           for tensor_par_comm_type in ['ar', 'p2p_rs_ag', 'rs_ag']:
-            for data_par_overlap in pick(dp>1, [True, False], [False]):
-              for weight_offload in [True, False]:
-                if activation_recompute == 'full':
-                  activations_offloads = [False]
-                else:
-                  activations_offloads = [True, False]
-                for activations_offload in activations_offloads:
-                  for optimizer_offload in [True, False]:
-                    exe_count += 1
-                    exe_json = {
-                      'num_procs': num_procs,
-                      'tensor_par': tp,
-                      'pipeline_par': pp,
-                      'data_par': dp,
-                      'batch_size': batch_size,
-                      'microbatch_size': microbatch_size,
-                      'datatype': 'bfloat16',
-                      'activation_recompute': activation_recompute,
-                      'pipeline_interleaving': ppint,
-                      'optimizer_sharding': optimizer_sharding,
-                      'tensor_par_comm_type': tensor_par_comm_type,
-                      'data_par_overlap': data_par_overlap,
-                      'weight_offload': weight_offload,
-                      'activations_offload': activations_offload,
-                      'optimizer_offload': optimizer_offload,
-                      'training': True
-                    }
+            can_redo = Megatron.can_redo_ag(tensor_par_comm_type, activation_recompute)
+            for seq_par_ag_redo in pick(can_redo, [True, False], [False]):
+              for data_par_overlap in pick(dp>1, [True, False], [False]):
+                for weight_offload in [True, False]:
+                  if activation_recompute == 'full':
+                    activations_offloads = [False]
+                  else:
+                    activations_offloads = [True, False]
+                  for activations_offload in activations_offloads:
+                    for optimizer_offload in [True, False]:
+                      exe_count += 1
+                      exe_json = {
+                        'num_procs': num_procs,
+                        'tensor_par': tp,
+                        'pipeline_par': pp,
+                        'data_par': dp,
+                        'batch_size': batch_size,
+                        'microbatch_size': microbatch_size,
+                        'datatype': 'bfloat16',
+                        'activation_recompute': activation_recompute,
+                        'pipeline_interleaving': ppint,
+                        'optimizer_sharding': optimizer_sharding,
+                        'tensor_par_comm_type': tensor_par_comm_type,
+                        'seq_par_ag_redo': seq_par_ag_redo,
+                        'data_par_overlap': data_par_overlap,
+                        'weight_offload': weight_offload,
+                        'activations_offload': activations_offload,
+                        'optimizer_offload': optimizer_offload,
+                        'training': True
+                      }
 
-                    if not debug:
-                      try:
-                        logger = logging.getLogger()
-                        model = Megatron(app, logger)
-                        model.compile(Megatron.Execution(exe_json))
-                        model.run(syst)
-                        stats = model.get_json()
-                        good_exe_count += 1
-                        if best_time == None or stats['total_time'] < best_time:
-                          best_time = stats['total_time']
-                          best_exe = exe_json
-                          best_stats = stats
-                      except Megatron.Error as ex:
-                        bad_exe_count += 1
+                      if not debug:
+                        try:
+                          logger = logging.getLogger()
+                          model = Megatron(app, logger)
+                          model.compile(Megatron.Execution(exe_json))
+                          model.run(syst)
+                          stats = model.get_json()
+                          good_exe_count += 1
+                          if best_time == None or stats['total_time'] < best_time:
+                            best_time = stats['total_time']
+                            best_exe = exe_json
+                            best_stats = stats
+                        except Megatron.Error as ex:
+                          bad_exe_count += 1
   return (best_time, best_stats, best_exe, exe_count, good_exe_count,
           bad_exe_count, tp, pp)
 
@@ -110,6 +114,8 @@ class OptimalExecution(calculon.CommandLine):
                     help='File path to stats output')
     sp.add_argument('-r', '--raw', type=str, default=None,
                     help='File path to raw TP/PP output')
+    sp.add_argument('-c', '--cpus', type=int, default=os.cpu_count(),
+                    help='CPUs to use for parallelization')
 
   @staticmethod
   def run_command(logger, args):
@@ -124,7 +130,7 @@ class OptimalExecution(calculon.CommandLine):
         params.append((args.debug, args.num_procs, app, syst, tp, pp))
 
     start_time = datetime.datetime.now()
-    with mp.Pool() as pool:
+    with mp.Pool(args.cpus) as pool:
       searches = pool.starmap(search, params)
     end_time = datetime.datetime.now()
 
