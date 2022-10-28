@@ -1,4 +1,4 @@
-def human_format(value, v_type=None):
+def human_format(value, v_type=None, precision=3):
   step = 1
   suffix = ''
   if v_type is None:
@@ -35,7 +35,7 @@ def human_format(value, v_type=None):
       else:
         break
     value = sign * abs_value
-    return "{0:.2f} {1}{2}".format(value, labels[index], suffix)
+    return "{0:.{1}f} {2}{3}".format(value, precision, labels[index], suffix)
   else:
     return "n/a {1}{2}".format(value, labels[0], suffix)
 
