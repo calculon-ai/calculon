@@ -35,9 +35,9 @@ def search(debug, num_procs, app, syst, tp, pp):
 
   dp = Megatron.get_data_parallelism(num_procs, tp, pp)
   for ppint in Megatron.get_valid_pipeline_interleavings(app.num_blocks, pp):
-    batch_size = 4096
+    batch_size = num_procs
     assert batch_size % dp == 0
-    for microbatch_size in Megatron.get_valid_microbatch_sizes(dp, batch_size, pp):
+    for microbatch_size in Megatron.get_valid_microbatch_sizes(app.seq_size, tp, dp, batch_size, pp):
       for activation_recompute in ['full', 'attn_only', 'none']:
         for optimizer_sharding in pick(dp>1, [True, False], [False]):
           for tensor_par_comm_type in ['ar', 'p2p_rs_ag', 'rs_ag']:

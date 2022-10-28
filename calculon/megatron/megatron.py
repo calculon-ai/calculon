@@ -137,11 +137,15 @@ class Megatron: # stems from class (ParaGraph)
   def get_all_pipeline_parallelisms(num_procs, tensor_par, num_blocks):
     assert num_procs % tensor_par == 0
     max_pp = min(num_procs // tensor_par, num_blocks)
-    yield from Megatron._factors(max_pp)
+    for cand in Megatron._factors(max_pp):
+      if (num_procs % (tensor_par * cand) == 0 and
+          num_blocks % cand == 0):
+        yield cand
 
   @staticmethod
   def get_data_parallelism(num_procs, tensor_par, pipeline_par):
-    assert num_procs % (tensor_par * pipeline_par) == 0
+    assert num_procs % (tensor_par * pipeline_par) == 0, \
+      f'np={num_procs} tp={tensor_par} pp={pipeline_par}'
     return num_procs // (tensor_par * pipeline_par)
 
   @staticmethod
@@ -154,10 +158,13 @@ class Megatron: # stems from class (ParaGraph)
       yield from Megatron._factors(max_ppint)
 
   @staticmethod
-  def get_valid_microbatch_sizes(data_par, global_batch_size, pipeline_par):
+  def get_valid_microbatch_sizes(seq_size, tensor_par, data_par, global_batch_size, pipeline_par):
     assert global_batch_size % data_par == 0
     local_batch_size = global_batch_size // data_par
-    yield from Megatron._factors(local_batch_size)
+    for cand in Megatron._factors(local_batch_size):
+      batch_seq = cand * seq_size
+      if batch_seq % tensor_par == 0:
+        yield cand
 
   @staticmethod
   def can_redo_ag(tensor_par_comm_type, activation_recompute):
@@ -632,8 +639,8 @@ class Megatron: # stems from class (ParaGraph)
     assert (self.exe.tensor_par <= net_tier1_size or
             self.exe.tensor_par <= net_tier2_size), \
             f"t={self.exe.tensor_par} is larger than the network " \
-            f"size {self.sys.net_tier1_size} " \
-            f"or {self.sys.net_tier2_size}"
+            f"size {net_tier1_size} " \
+            f"or {net_tier2_size}"
     if self.exe.tensor_par <= net_tier1_size:
       self._tp_net_tier = 1
     else:
@@ -644,8 +651,8 @@ class Megatron: # stems from class (ParaGraph)
     assert (self.exe.data_par * self.exe.tensor_par <= net_tier1_size or
             self.exe.data_par * self.exe.tensor_par <= net_tier2_size), \
             f"d={self.exe.data_par} x t={self.exe.tensor_par} is larger than the " \
-            f"network size {self.sys.net_tier1_size} " \
-            f"or {self.sys.net_tier2_size}"
+            f"network size {net_tier1_size} " \
+            f"or {net_tier2_size}"
     if self.exe.data_par * self.exe.tensor_par <= net_tier1_size:
       self._dp_net_tier = 1
     else:
@@ -658,8 +665,8 @@ class Megatron: # stems from class (ParaGraph)
             self.exe.pipeline_par * self.exe.data_par * \
             self.exe.tensor_par <= net_tier2_size), \
             f"p={self.exe.pipeline_par} x d={self.exe.data_par} x t={self.exe.tensor_par} is larger than the " \
-            f"network size {self.sys.net_tier1_size} " \
-            f"or {self.sys.net_tier2_size}"
+            f"network size {net_tier1_size} " \
+            f"or {net_tier2_size}"
     if (self.exe.pipeline_par * self.exe.data_par * self.exe.tensor_par <=
         net_tier1_size):
       self._pp_net_tier = 1
