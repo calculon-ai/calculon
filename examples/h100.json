@@ -19,12 +19,26 @@
       [0, 0.9]
     ]
   },
-  "mem_tier1_bw": 3072,
-  "mem_tier1_cap": 80,
-  "mem_tier1_eff": 0.9,
-  "mem_tier2_bw": 512,
-  "mem_tier2_cap": 1024,
-  "mem_tier2_eff": 0.9,
+  "mem1": {
+    "GiB": 80,
+    "GBps": 3072,
+    "MB_efficiency": [
+      [100, 0.95],
+      [10, 0.90],
+      [1, 0.7],
+      [0, 0.3]
+    ]
+  },
+  "mem2": {
+    "GiB": 1024,
+    "GBps": 512,
+    "MB_efficiency": [
+      [100, 0.95],
+      [10, 0.9],
+      [1, 0.7],
+      [0, 0.3]
+    ]
+  },
   "processing_mode": "no_overlap",
   "net_tier1": {
     "bandwidth": 450,

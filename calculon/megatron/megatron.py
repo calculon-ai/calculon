@@ -684,22 +684,22 @@ class Megatron: # stems from class (ParaGraph)
     self._block_fw_time = 0
     self._block_weight_space = 0
     self._block_act_space = 0
-    if self.exe.training:
-      self._block_re_flops = 0
-      self._block_re_flops_time = 0
-      self._block_re_mem_accessed = 0
-      self._block_re_mem_time = 0
-      self._block_re_time = 0
-      self._block_recompute_mem_saving = 0
-      self._block_bw_flops = 0
-      self._block_bw_flops_time = 0
-      self._block_bw_mem_accessed = 0
-      self._block_bw_mem_time = 0
-      self._block_bw_time = 0
-      self._block_weight_grad_space = 0
-      self._block_weight_grad_space_no_sharding = 0
-      self._block_act_grad_space = 0
-      self._block_optimizer_space = 0
+    # We use this block for self.exe.training, but initialize anyway
+    self._block_re_flops = 0
+    self._block_re_flops_time = 0
+    self._block_re_mem_accessed = 0
+    self._block_re_mem_time = 0
+    self._block_re_time = 0
+    self._block_recompute_mem_saving = 0
+    self._block_bw_flops = 0
+    self._block_bw_flops_time = 0
+    self._block_bw_mem_accessed = 0
+    self._block_bw_mem_time = 0
+    self._block_bw_time = 0
+    self._block_weight_grad_space = 0
+    self._block_weight_grad_space_no_sharding = 0
+    self._block_act_grad_space = 0
+    self._block_optimizer_space = 0
 
     prev_layer_recompute = False
     for layer in self._megatron_block:
