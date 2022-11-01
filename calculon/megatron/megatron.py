@@ -357,6 +357,7 @@ class Megatron: # stems from class (ParaGraph)
     j['compute_efficiency'] = self.get_compute_efficiency()
     j['system_efficiency'] = self.get_system_efficiency()
     j['total_efficiency'] = self.get_total_efficiency()
+    j['sample_rate'] = self.get_sample_rate()
     j['layers'] = []
     for layer in self._megatron_block:
       j['layers'].append(layer.get_json())
@@ -1554,6 +1555,9 @@ class Megatron: # stems from class (ParaGraph)
     else:
       return self._get_fw_offload_size() / fw_offload_time
 
+  def get_sample_rate(self):
+    return self.exe.global_batch_size / self.get_total_time()
+
   def display_stats(self):
     stats = "=" * 80 + "\n"
     stats += "" \
@@ -1589,5 +1593,6 @@ class Megatron: # stems from class (ParaGraph)
       f"Mem Tier2 BW for offload: {human_format(self.get_offload_mem_bw_req(), 'bandwidth')};\n" \
       f"Compute efficiency: {self.get_compute_efficiency()*100:.2f}%;\n" \
       f"System efficiency: {self.get_system_efficiency()*100:.2f}%;\n" \
-      f"Total efficiency: {self.get_total_efficiency()*100:.2f}%;\n"
+      f"Total efficiency: {self.get_total_efficiency()*100:.2f}%;\n" \
+      f"Sample rate: {self.get_sample_rate():.2f};\n"
     self.log.info(stats)
