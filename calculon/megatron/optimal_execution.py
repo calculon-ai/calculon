@@ -60,41 +60,47 @@ def search(debug, num_procs, max_batch_size, app, syst, tp, pp):
                     activations_offloads = [True, False]
                   for activations_offload in activations_offloads:
                     for optimizer_offload in [True, False]:
-                      exe_count += 1
-                      exe_json = {
-                        'num_procs': num_procs,
-                        'tensor_par': tp,
-                        'pipeline_par': pp,
-                        'data_par': dp,
-                        'batch_size': batch_size,
-                        'microbatch_size': microbatch_size,
-                        'datatype': 'bfloat16',
-                        'activation_recompute': activation_recompute,
-                        'pipeline_interleaving': ppint,
-                        'optimizer_sharding': optimizer_sharding,
-                        'tensor_par_comm_type': tensor_par_comm_type,
-                        'seq_par_ag_redo': seq_par_ag_redo,
-                        'data_par_overlap': data_par_overlap,
-                        'weight_offload': weight_offload,
-                        'activations_offload': activations_offload,
-                        'optimizer_offload': optimizer_offload,
-                        'training': True
-                      }
+                      for tn in [1, 2]:
+                        for pn in [1, 2]:
+                          for dn in [1, 2]:
+                            exe_count += 1
+                            exe_json = {
+                              'num_procs': num_procs,
+                              'tensor_par': tp,
+                              'pipeline_par': pp,
+                              'data_par': dp,
+                              'tensor_par_net': tn,
+                              'pipeline_par_net': pn,
+                              'data_par_net': dn,
+                              'batch_size': batch_size,
+                              'microbatch_size': microbatch_size,
+                              'datatype': 'bfloat16',
+                              'activation_recompute': activation_recompute,
+                              'pipeline_interleaving': ppint,
+                              'optimizer_sharding': optimizer_sharding,
+                              'tensor_par_comm_type': tensor_par_comm_type,
+                              'seq_par_ag_redo': seq_par_ag_redo,
+                              'data_par_overlap': data_par_overlap,
+                              'weight_offload': weight_offload,
+                              'activations_offload': activations_offload,
+                              'optimizer_offload': optimizer_offload,
+                              'training': True
+                            }
 
-                      if not debug:
-                        try:
-                          logger = logging.getLogger()
-                          model = Megatron(app, logger)
-                          model.compile(Megatron.Execution(exe_json))
-                          model.run(syst)
-                          stats = model.get_json()
-                          good_exe_count += 1
-                          if best_rate == None or stats['sample_rate'] > best_rate:
-                            best_rate = stats['sample_rate']
-                            best_exe = exe_json
-                            best_stats = stats
-                        except Megatron.Error as ex:
-                          bad_exe_count += 1
+                            if not debug:
+                              try:
+                                logger = logging.getLogger()
+                                model = Megatron(app, logger)
+                                model.compile(Megatron.Execution(exe_json))
+                                model.run(syst)
+                                stats = model.get_json()
+                                good_exe_count += 1
+                                if best_rate == None or stats['sample_rate'] > best_rate:
+                                  best_rate = stats['sample_rate']
+                                  best_exe = exe_json
+                                  best_stats = stats
+                              except Megatron.Error as ex:
+                                bad_exe_count += 1
   return (best_rate, best_stats, best_exe, exe_count, good_exe_count,
           bad_exe_count, tp, pp)
 

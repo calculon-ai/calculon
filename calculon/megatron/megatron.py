@@ -70,6 +70,12 @@ class Megatron: # stems from class (ParaGraph)
       assert self.data_par > 0
       assert self.num_procs == self.tensor_par * self.pipeline_par * \
         self.data_par, 'tensor * pipeline * data parallelism != num_procs'
+      self.tensor_par_net = cfg['tensor_par_net']
+      assert self.tensor_par_net in [1, 2]
+      self.pipeline_par_net = cfg['pipeline_par_net']
+      assert self.pipeline_par_net in [1, 2]
+      self.data_par_net = cfg['data_par_net']
+      assert self.data_par_net in [1, 2]
       self.global_batch_size = cfg['batch_size']
       assert self.global_batch_size > 0
       self.microbatch_size = cfg['microbatch_size']
@@ -207,12 +213,9 @@ class Megatron: # stems from class (ParaGraph)
     self._seq_par_activation_size = None
 
     # Assignments to specific networks
-    self._tp_net_tier = None
     self._tp_net = None
-    self._dp_net_tier = None
-    self._dp_net = None
-    self._pp_net_tier = None
     self._pp_net = None
+    self._dp_net = None
 
     # metrics collected after run for each microbatch
     self._block_fw_flops = None
@@ -296,10 +299,6 @@ class Megatron: # stems from class (ParaGraph)
   def get_json(self):
     assert self._executed
     j = {}
-    j['tp_net_tier'] = self._tp_net_tier
-    j['dp_net_tier'] = self._dp_net_tier
-    j['pp_net_tier'] = self._pp_net_tier
-
     j['block_fw_flops'] = self._block_fw_flops
     j['block_fw_flops_time'] = self._block_fw_flops_time
     j['block_fw_mem_accessed'] = self._block_fw_mem_accessed
@@ -626,54 +625,43 @@ class Megatron: # stems from class (ParaGraph)
         layer.shard_optimizer(self.exe.data_par)
     self._compiled = True
 
-  def _set_hardware_attributes(self):
-    # TODO(nicmcd): there are possible permutations of T,P,D and the
-    # corresponding network tiers that we are missing here. Write an algorithm
-    # to search them all and choose the best.
-    # It might be true that we can't know the best assignment and that we need
-    # to move the assignment into the execution configuration and sweep the
-    # permutation from the outside.
+  def _check_network_assignments(self):
+    net1_used = False
+    net1_size = 1
+    net2_used = False
+    net2_size = 1
 
-    # Determines network tier for TP
-    net_tier1_size = self.sys.get_network(1).size
-    net_tier2_size = self.sys.get_network(2).size
-    assert (self.exe.tensor_par <= net_tier1_size or
-            self.exe.tensor_par <= net_tier2_size), \
-            f"t={self.exe.tensor_par} is larger than the network " \
-            f"size {net_tier1_size} " \
-            f"or {net_tier2_size}"
-    if self.exe.tensor_par <= net_tier1_size:
-      self._tp_net_tier = 1
-    else:
-      self._tp_net_tier = 2
-    self._tp_net = self.sys.get_network(self._tp_net_tier)
+    if self.exe.tensor_par > 1:
+      if self.exe.tensor_par_net == 1:
+        net1_used = True
+        net1_size *= self.exe.tensor_par
+      else:
+        net2_used = True
+        net2_size *= self.exe.tensor_par
+    self._tp_net = self.sys.get_network(self.exe.tensor_par_net)
 
-    # Determines network tier for DP
-    assert (self.exe.data_par * self.exe.tensor_par <= net_tier1_size or
-            self.exe.data_par * self.exe.tensor_par <= net_tier2_size), \
-            f"d={self.exe.data_par} x t={self.exe.tensor_par} is larger than the " \
-            f"network size {net_tier1_size} " \
-            f"or {net_tier2_size}"
-    if self.exe.data_par * self.exe.tensor_par <= net_tier1_size:
-      self._dp_net_tier = 1
-    else:
-      self._dp_net_tier = 2
-    self._dp_net = self.sys.get_network(self._dp_net_tier)
+    if self.exe.pipeline_par > 1:
+      if self.exe.pipeline_par_net == 1:
+        net1_used = True
+        net1_size *= self.exe.pipeline_par
+      else:
+        net2_used = True
+        net2_size *= self.exe.pipeline_par
+    self._pp_net = self.sys.get_network(self.exe.pipeline_par_net)
 
-    # Determines network tier for PP
-    assert (self.exe.pipeline_par * self.exe.data_par * \
-            self.exe.tensor_par <= net_tier1_size or \
-            self.exe.pipeline_par * self.exe.data_par * \
-            self.exe.tensor_par <= net_tier2_size), \
-            f"p={self.exe.pipeline_par} x d={self.exe.data_par} x t={self.exe.tensor_par} is larger than the " \
-            f"network size {net_tier1_size} " \
-            f"or {net_tier2_size}"
-    if (self.exe.pipeline_par * self.exe.data_par * self.exe.tensor_par <=
-        net_tier1_size):
-      self._pp_net_tier = 1
-    else:
-      self._pp_net_tier = 2
-    self._pp_net = self.sys.get_network(self._pp_net_tier)
+    if self.exe.data_par > 1:
+      if self.exe.data_par_net == 1:
+        net1_used = True
+        net1_size *= self.exe.data_par
+      else:
+        net2_used = True
+        net2_size *= self.exe.data_par
+    self._dp_net = self.sys.get_network(self.exe.data_par_net)
+
+    if net1_used and net1_size > self.sys.get_network(1).size:
+      raise self.Error('Network tier1 isn\'t big enough')
+    if net2_used and net2_size > self.sys.get_network(2).size:
+      raise self.Error('Network tier2 isn\'t big enough')
 
   def _compute_block_stats(self):
     """
@@ -1299,7 +1287,7 @@ class Megatron: # stems from class (ParaGraph)
     assert not self._executed
     assert isinstance(sys, System)
     self.sys = sys
-    self._set_hardware_attributes()
+    self._check_network_assignments()
     self._compute_block_stats()
     self._compute_batch_stats()
     self._check_mem_caps()

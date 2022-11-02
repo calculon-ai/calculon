@@ -18,7 +18,7 @@ assert os.path.isfile(configs)
 with open(configs, 'r') as fd:
   configs = json.load(fd)
 
-print(f'name,batch_size,batch_time,sample_rate,ceff,seff,teff,mem1,mem2,off_bw,tp,pp,dp,pi,mbs,recompute,tp_comm,redo')
+print(f'name,batch_size,batch_time,sample_rate,ceff,seff,teff,mem1,mem2,off_bw,tp,pp,dp,tn,pn,dn,pi,mbs,recompute,tp_comm,redo')
 for name, nodes in configs:
   config = os.path.join(args.directory, f'{name}.json')
   exe = os.path.join(args.directory, 'results', f'{name}_exe.json')
@@ -44,6 +44,9 @@ for name, nodes in configs:
     tp = e['tensor_par']
     pp = e['pipeline_par']
     dp = e['data_par']
+    tn = e['tensor_par_net']
+    pn = e['pipeline_par_net']
+    dn = e['data_par_net']
     pi = e['pipeline_interleaving']
     mbs = e['microbatch_size']
     ar = e['activation_recompute']
@@ -59,4 +62,4 @@ for name, nodes in configs:
       mem1 = s['proc_mem_tier1_cap_req'] / 1024**3
       mem2 = s['proc_mem_tier2_cap_req'] / 1024**3
       off_bw = s['offload_mem_bw_req'] / 1e9
-      print(f'{name},{batch_size},{batch_time},{sample_rate},{ceff},{seff},{teff},{mem1},{mem2},{off_bw},{tp},{pp},{dp},{pi},{mbs},{ar},{tp_comm},{redo}')
+      print(f'{name},{batch_size},{batch_time},{sample_rate},{ceff},{seff},{teff},{mem1},{mem2},{off_bw},{tp},{pp},{dp},{tn},{pn},{dn},{pi},{mbs},{ar},{tp_comm},{redo}')
