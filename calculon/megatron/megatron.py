@@ -19,11 +19,10 @@ from calculon import *
 from .layers import *
 
 
-class Megatron: # stems from class (ParaGraph)
+class Megatron:
   """
-  A Megatron class that implements transformer with tensor, pipeline, and data
-  parallelism.
-  We should
+  This implements the transformer with tensor, pipeline, and data parallelism.
+  Using it follows this pattern:
   1. Initialize the model with certain model parameters
   2. Compile it with certain optimizations and parallelization strategies
   3. Run on particular hardware system
@@ -164,7 +163,8 @@ class Megatron: # stems from class (ParaGraph)
       yield from Megatron._factors(max_ppint)
 
   @staticmethod
-  def get_valid_microbatch_sizes(seq_size, tensor_par, data_par, global_batch_size, pipeline_par):
+  def get_valid_microbatch_sizes(
+      seq_size, tensor_par, data_par, global_batch_size, pipeline_par):
     assert global_batch_size % data_par == 0
     local_batch_size = global_batch_size // data_par
     for cand in Megatron._factors(local_batch_size):
@@ -326,7 +326,8 @@ class Megatron: # stems from class (ParaGraph)
     j['block_act_space'] = self._block_act_space
     j['block_act_checkpoint_size'] = self._block_act_checkpoint_size
     j['block_weight_grad_space'] = self._block_weight_grad_space
-    j['block_weight_grad_space_no_sharding'] = self._block_weight_grad_space_no_sharding
+    j['block_weight_grad_space_no_sharding'] = \
+      self._block_weight_grad_space_no_sharding
     j['block_act_grad_space'] = self._block_act_grad_space
     j['block_optimizer_space'] = self._block_optimizer_space
 
@@ -973,8 +974,10 @@ class Megatron: # stems from class (ParaGraph)
       num_bw_pp_p2ps = 0
 
     # These PP numbers are for total times for all blocks and all microbatches
-    pp_fw_comm_time = self.exe._num_microbatches * num_fw_pp_p2ps * chunk_fw_pp_time
-    pp_bw_comm_time = self.exe._num_microbatches * num_bw_pp_p2ps * chunk_bw_pp_time
+    pp_fw_comm_time = self.exe._num_microbatches * num_fw_pp_p2ps * \
+      chunk_fw_pp_time
+    pp_bw_comm_time = self.exe._num_microbatches * num_bw_pp_p2ps * \
+      chunk_bw_pp_time
 
     # Aggregrates metrics
     self._tp_comm_time = tp_fw_comm_time + tp_bw_comm_time
@@ -1551,8 +1554,11 @@ class Megatron: # stems from class (ParaGraph)
     stats += "" \
       f"Model {self.app.name}: {self.app.num_blocks} blocks, " \
       f"hidden={self.app.hidden}, num attn heads: {self.app.attn_heads}\n" \
-      f"Run on {self.exe.num_procs} processors with TP={self.exe.tensor_par}, PP={self.exe.pipeline_par}, " \
-      f"DP={self.exe.data_par}, {self._blocks_per_proc} blocks per processor\n" \
+      f"Run on {self.exe.num_procs} processors with:\n" \
+      f"TP={self.exe.tensor_par}\n" \
+      f"PP={self.exe.pipeline_par}\n" \
+      f"DP={self.exe.data_par}\n" \
+      f"Blocks per processor: {self._blocks_per_proc}\n" \
       f"Execution: {self.exe.cfg};\n" \
       f"System: {self.sys.cfg};\n" \
       f"Weights: {human_format(self.get_weight_space(), 'bytes')};\n" \
@@ -1572,13 +1578,20 @@ class Megatron: # stems from class (ParaGraph)
       f"Batch PP comm time: {self.get_pp_comm_time():.4f};\n" \
       f"Batch DP comm overhead: {self.get_dp_comm_time():.4f};\n" \
       f"Batch total time: {self.get_total_time():.4f};\n" \
-      f"Activation offload required BW: {human_format(self.get_act_offload_bw_req(), 'bandwidth')};\n" \
-      f"Weight offload required BW: {human_format(self.get_weight_offload_bw_req(), 'bandwidth')};\n" \
-      f"Optimizer offload required BW: {human_format(self.get_optim_offload_bw_req(), 'bandwidth')};\n" \
-      f"Total offload required BW: {human_format(self.get_offload_mem_bw_req(), 'bandwidth')};\n" \
-      f"Mem tier1 capacity requirement: {human_format(self.get_mem_tier1_cap_req(), 'bytes')};\n" \
-      f"Mem tier2 capacity requirement: {human_format(self.get_mem_tier2_cap_req(), 'bytes')};\n" \
-      f"Mem Tier2 BW for offload: {human_format(self.get_offload_mem_bw_req(), 'bandwidth')};\n" \
+      f"Activation offload required BW: " \
+      f"{human_format(self.get_act_offload_bw_req(), 'bandwidth')};\n" \
+      f"Weight offload required BW: " \
+      f"{human_format(self.get_weight_offload_bw_req(), 'bandwidth')};\n" \
+      f"Optimizer offload required BW: " \
+      f"{human_format(self.get_optim_offload_bw_req(), 'bandwidth')};\n" \
+      f"Total offload required BW: " \
+      f"{human_format(self.get_offload_mem_bw_req(), 'bandwidth')};\n" \
+      f"Mem tier1 capacity requirement: " \
+      f"{human_format(self.get_mem_tier1_cap_req(), 'bytes')};\n" \
+      f"Mem tier2 capacity requirement: " \
+      f"{human_format(self.get_mem_tier2_cap_req(), 'bytes')};\n" \
+      f"Mem Tier2 BW for offload: " \
+      f"{human_format(self.get_offload_mem_bw_req(), 'bandwidth')};\n" \
       f"Compute efficiency: {self.get_compute_efficiency()*100:.2f}%;\n" \
       f"System efficiency: {self.get_system_efficiency()*100:.2f}%;\n" \
       f"Total efficiency: {self.get_total_efficiency()*100:.2f}%;\n" \
