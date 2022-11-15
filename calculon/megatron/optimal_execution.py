@@ -46,11 +46,13 @@ def search(debug, num_procs, max_batch_size, app, syst, tp, pp):
   for ppint in Megatron.get_valid_pipeline_interleavings(app.num_blocks, pp):
     batch_size = get_batch_size(dp, max_batch_size)
     assert batch_size % dp == 0
-    for microbatch_size in Megatron.get_valid_microbatch_sizes(app.seq_size, tp, dp, batch_size, pp):
+    for microbatch_size in Megatron.get_valid_microbatch_sizes(
+        app.seq_size, tp, dp, batch_size, pp):
       for activation_recompute in ['full', 'attn_only', 'none']:
         for optimizer_sharding in pick(dp>1, [True, False], [False]):
           for tensor_par_comm_type in ['ar', 'p2p_rs_ag', 'rs_ag']:
-            can_redo = Megatron.can_redo_ag(tensor_par_comm_type, activation_recompute)
+            can_redo = Megatron.can_redo_ag(tensor_par_comm_type,
+                                            activation_recompute)
             for seq_par_ag_redo in pick(can_redo, [True, False], [False]):
               for data_par_overlap in pick(dp>1, [True, False], [False]):
                 for weight_offload in [True, False]:
@@ -95,7 +97,8 @@ def search(debug, num_procs, max_batch_size, app, syst, tp, pp):
                                 model.run(syst)
                                 stats = model.get_json()
                                 good_exe_count += 1
-                                if best_rate == None or stats['sample_rate'] > best_rate:
+                                if (best_rate == None or
+                                    stats['sample_rate'] > best_rate):
                                   best_rate = stats['sample_rate']
                                   best_exe = exe_json
                                   best_stats = stats
@@ -142,9 +145,12 @@ class OptimalExecution(calculon.CommandLine):
       syst = System(json.load(fd))
 
     params = []
-    for tp in Megatron.get_all_tensor_parallelisms(args.num_procs, app.attn_heads):
-      for pp in Megatron.get_all_pipeline_parallelisms(args.num_procs, tp, app.num_blocks):
-        params.append((args.debug, args.num_procs, args.max_batch_size, app, syst, tp, pp))
+    for tp in Megatron.get_all_tensor_parallelisms(
+        args.num_procs, app.attn_heads):
+      for pp in Megatron.get_all_pipeline_parallelisms(
+          args.num_procs, tp, app.num_blocks):
+        params.append((args.debug, args.num_procs, args.max_batch_size, app,
+                       syst, tp, pp))
 
     start_time = datetime.datetime.now()
     with mp.Pool(args.cpus) as pool:
