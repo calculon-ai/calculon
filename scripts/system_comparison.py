@@ -8,20 +8,20 @@ import subprocess
 
 def main(args):
   assert os.path.isdir(args.directory)
-  os.makedirs(os.path.join(args.directory, 'results'), exist_ok=True)
+  os.makedirs(os.path.join(args.directory, args.application_name), exist_ok=True)
 
   configs = os.path.join(args.directory, 'configs.json')
   assert os.path.isfile(configs)
   with open(configs, 'r') as fd:
     configs = json.load(fd)
 
-  csv_file = os.path.join(args.directory, 'results', 'syscomp.csv')
+  csv_file = os.path.join(args.directory, args.application_name, 'syscomp.csv')
   for name, nodes in configs:
     config = os.path.join(args.directory, f'{name}.json')
-    log = os.path.join(args.directory, 'results', f'{name}.log')
-    exe = os.path.join(args.directory, 'results', f'{name}_exe.json')
-    stats = os.path.join(args.directory, 'results', f'{name}_stats.json')
-    raw = os.path.join(args.directory, 'results', f'{name}_raw.json')
+    log = os.path.join(args.directory, args.application_name, f'{name}.log')
+    exe = os.path.join(args.directory, args.application_name, f'{name}_exe.json')
+    stats = os.path.join(args.directory, args.application_name, f'{name}_stats.json')
+    raw = os.path.join(args.directory, args.application_name, f'{name}_raw.json')
 
     if args.batch_mode <= 0:
       max_batch_size = nodes
@@ -46,9 +46,9 @@ def main(args):
           file=csv)
     for name, nodes in configs:
       config = os.path.join(args.directory, f'{name}.json')
-      exe = os.path.join(args.directory, 'results', f'{name}_exe.json')
-      stats = os.path.join(args.directory, 'results', f'{name}_stats.json')
-      raw = os.path.join(args.directory, 'results', f'{name}_raw.json')
+      exe = os.path.join(args.directory, args.application_name, f'{name}_exe.json')
+      stats = os.path.join(args.directory, args.application_name, f'{name}_stats.json')
+      raw = os.path.join(args.directory, args.application_name, f'{name}_raw.json')
 
       with open(exe, 'r') as fd:
         e = json.load(fd)
@@ -84,6 +84,7 @@ def main(args):
 if __name__ == '__main__':
   ap = argparse.ArgumentParser()
   ap.add_argument('application', type=str, help='Application configuration')
+  ap.add_argument('application_name', type=str, help='Application name')
   ap.add_argument('directory', type=str, help='Directory of sweep')
   ap.add_argument('batch_mode', type=int, help='0 for num_procs, >0 for max')
   args = ap.parse_args()
