@@ -25,6 +25,8 @@ from calculon.megatron import *
 
 kModels = ['22B', '175B', '530B', '1T']
 kModes = ['full', 'seqsel']
+# These profiled values are reported here:
+# https://arxiv.org/pdf/2205.05198.pdf
 kProfile = {
   '22B': {
     'full': 1.42,
@@ -68,8 +70,6 @@ class Validation(calculon.CommandLine):
       Validation.NAME, aliases=Validation.ALIASES,
       help='run a validation of megatron execution')
     sp.set_defaults(func=Validation.run_command)
-    sp.add_argument('-d', '--debug', action='store_true',
-                    help='Loop over executions, don\'t run them')
 
   @staticmethod
   def run_command(logger, args):
