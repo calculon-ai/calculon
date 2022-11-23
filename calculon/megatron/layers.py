@@ -51,7 +51,7 @@ class Layer:
     self.bytes_per_element = 1
     self.processing_time = None
 
-  def get_json(self):
+  def get_stats_json(self):
     return {
       'name': self.name,
       'fw_flops': self.get_fw_flops(),

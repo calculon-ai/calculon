@@ -37,6 +37,8 @@ class Runner(calculon.CommandLine):
                     help='File path to system configuration')
     sp.add_argument('stats', type=str,
                     help='File path to stats output ("-" for stdout")')
+    sp.add_argument('-p', '--peers', type=str, default=None,
+                    help='File path to write out peers file')
 
   @staticmethod
   def run_command(logger, args):
@@ -47,10 +49,14 @@ class Runner(calculon.CommandLine):
     with open(args.system, 'r') as fd:
       sys_json = json.load(fd)
 
+    app = Megatron.Application(app_json)
+    exe = Megatron.Execution(exe_json)
+    syst = System(sys_json)
+
     try:
-      model = Megatron(Megatron.Application(app_json), logger)
-      model.compile(Megatron.Execution(exe_json))
-      model.run(System(sys_json))
+      model = Megatron(app, logger)
+      model.compile(exe)
+      model.run(syst)
     except Megatron.Error as error:
       print(f'ERROR: {error}')
       return -1
@@ -59,9 +65,14 @@ class Runner(calculon.CommandLine):
       model.display_stats()
     elif args.stats.endswith('.json'):
       with open(args.stats, 'w') as fd:
-        json.dump(model.get_json(), fd, indent=2)
+        json.dump(model.get_stats_json(), fd, indent=2)
     else:
       assert False, f'unknown stats extension: {args.stats}'
+
+    if args.peers:
+      with open(args.peers, 'w') as fd:
+        json.dump(exe.get_peers_json(), fd, indent=2)
+
     return 0
 
 

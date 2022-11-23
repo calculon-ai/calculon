@@ -120,6 +120,43 @@ class Megatron:
         assert self.training, \
           "We only perform optimizer offloading during training"
 
+    def get_peers_json(self):
+      peers = {}
+      for di in range(self.data_par):
+        for pi in range(self.pipeline_par):
+          for ti in range(self.tensor_par):
+            nid = (di * self.tensor_par * self.pipeline_par +
+                   pi * self.tensor_par +
+                   ti)
+            peers[nid] = {
+              'tensor': [],
+              'pipeline': None,
+              'data': []
+            }
+
+            # tensor parallelism peers
+            for ti2 in range(self.tensor_par):
+              pid = (di * self.tensor_par * self.pipeline_par +
+                     pi * self.tensor_par +
+                     ti2)
+              peers[nid]['tensor'].append(pid)
+
+            # pipeline parallelism peer
+            pi2 = (pi + 1) % self.pipeline_par
+            pid = (di * self.tensor_par * self.pipeline_par +
+                   pi2 * self.tensor_par +
+                   ti)
+            peers[nid]['pipeline'] = pid
+
+            # data parallelism peers
+            for di2 in range(self.data_par):
+              pid = (di2 * self.tensor_par * self.pipeline_par +
+                     pi * self.tensor_par +
+                     ti)
+              peers[nid]['data'].append(pid)
+      return peers
+
+
   # This is used for errors where the user may not be fully aware of
   # limitations. Use it like this:
   #   raise self.Error(f'Foo bar {num1} is not {num2}')
@@ -296,7 +333,7 @@ class Megatron:
     self._dp_comm_time = None
     self._bubble_time = None
 
-  def get_json(self):
+  def get_stats_json(self):
     assert self._executed
     j = {}
     j['block_fw_flops'] = self._block_fw_flops
@@ -321,6 +358,7 @@ class Megatron:
     j['block_recomm_size'] = self._block_recomm_size
     j['block_fw_pp_size'] = self._block_fw_pp_size
     j['block_bw_pp_size'] = self._block_bw_pp_size
+    j['block_dp_size'] = self._block_dp_size
 
     j['block_weight_space'] = self._block_weight_space
     j['block_act_space'] = self._block_act_space
@@ -360,7 +398,7 @@ class Megatron:
     j['sample_rate'] = self.get_sample_rate()
     j['layers'] = []
     for layer in self._megatron_block:
-      j['layers'].append(layer.get_json())
+      j['layers'].append(layer.get_stats_json())
     return j
 
   def _build_attn_block(self):

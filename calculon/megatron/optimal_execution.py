@@ -95,7 +95,7 @@ def search(debug, num_procs, max_batch_size, app, syst, tp, pp):
                                 model = Megatron(app, logger)
                                 model.compile(Megatron.Execution(exe_json))
                                 model.run(syst)
-                                stats = model.get_json()
+                                stats = model.get_stats_json()
                                 good_exe_count += 1
                                 if (best_rate == None or
                                     stats['sample_rate'] > best_rate):
