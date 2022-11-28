@@ -128,32 +128,34 @@ class Megatron:
             nid = (di * self.tensor_par * self.pipeline_par +
                    pi * self.tensor_par +
                    ti)
-            peers[nid] = {
-              'tensor': [],
-              'pipeline': None,
-              'data': []
-            }
+            peers[nid] = {}
 
             # tensor parallelism peers
-            for ti2 in range(self.tensor_par):
-              pid = (di * self.tensor_par * self.pipeline_par +
-                     pi * self.tensor_par +
-                     ti2)
-              peers[nid]['tensor'].append(pid)
+            if self.tensor_par > 1:
+              peers[nid]['tensor'] = []
+              for ti2 in range(self.tensor_par):
+                pid = (di * self.tensor_par * self.pipeline_par +
+                       pi * self.tensor_par +
+                       ti2)
+                peers[nid]['tensor'].append(pid)
 
             # pipeline parallelism peer
-            pi2 = (pi + 1) % self.pipeline_par
-            pid = (di * self.tensor_par * self.pipeline_par +
-                   pi2 * self.tensor_par +
-                   ti)
-            peers[nid]['pipeline'] = pid
+            if self.pipeline_par > 1:
+              peers[nid]['pipeline'] = None
+              pi2 = (pi + 1) % self.pipeline_par
+              pid = (di * self.tensor_par * self.pipeline_par +
+                     pi2 * self.tensor_par +
+                     ti)
+              peers[nid]['pipeline'] = pid
 
             # data parallelism peers
-            for di2 in range(self.data_par):
-              pid = (di2 * self.tensor_par * self.pipeline_par +
-                     pi * self.tensor_par +
-                     ti)
-              peers[nid]['data'].append(pid)
+            if self.data_par > 1:
+              peers[nid]['data'] = []
+              for di2 in range(self.data_par):
+                pid = (di2 * self.tensor_par * self.pipeline_par +
+                       pi * self.tensor_par +
+                       ti)
+                peers[nid]['data'].append(pid)
       return peers
 
 
