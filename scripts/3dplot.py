@@ -41,7 +41,7 @@ def main(args):
                   edgecolor='none')
   ax.set_xlabel('Tensor Parallelism')
   ax.set_ylabel('Pipeline Parallelism')
-  ax.set_zlabel('Batch Time (s)')
+  ax.set_zlabel('Sample Rate (s/sec)')
   if args.title:
     ax.set_title(args.title)
   ax.view_init(20, 180+25)
