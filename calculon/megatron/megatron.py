@@ -70,11 +70,8 @@ class Megatron:
       assert self.num_procs == self.tensor_par * self.pipeline_par * \
         self.data_par, 'tensor * pipeline * data parallelism != num_procs'
       self.tensor_par_net = cfg['tensor_par_net']
-      assert self.tensor_par_net in [1, 2]
       self.pipeline_par_net = cfg['pipeline_par_net']
-      assert self.pipeline_par_net in [1, 2]
       self.data_par_net = cfg['data_par_net']
-      assert self.data_par_net in [1, 2]
       self.global_batch_size = cfg['batch_size']
       assert self.global_batch_size > 0
       self.microbatch_size = cfg['microbatch_size']
@@ -667,42 +664,32 @@ class Megatron:
     self._compiled = True
 
   def _check_network_assignments(self):
-    net1_used = False
-    net1_size = 1
-    net2_used = False
-    net2_size = 1
+    used = [False] * self.sys.num_networks
+    size = [1] * self.sys.num_networks
+
+    assert self.exe.tensor_par_net < self.sys.num_networks
+    assert self.exe.pipeline_par_net < self.sys.num_networks
+    assert self.exe.data_par_net < self.sys.num_networks
 
     if self.exe.tensor_par > 1:
-      if self.exe.tensor_par_net == 1:
-        net1_used = True
-        net1_size *= self.exe.tensor_par
-      else:
-        net2_used = True
-        net2_size *= self.exe.tensor_par
+      used[self.exe.tensor_par_net] = True
+      size[self.exe.tensor_par_net] *= self.exe.tensor_par
     self._tp_net = self.sys.get_network(self.exe.tensor_par_net)
 
     if self.exe.pipeline_par > 1:
-      if self.exe.pipeline_par_net == 1:
-        net1_used = True
-        net1_size *= self.exe.pipeline_par
-      else:
-        net2_used = True
-        net2_size *= self.exe.pipeline_par
+      used[self.exe.pipeline_par_net] = True
+      size[self.exe.pipeline_par_net] *= self.exe.pipeline_par
     self._pp_net = self.sys.get_network(self.exe.pipeline_par_net)
 
     if self.exe.data_par > 1:
-      if self.exe.data_par_net == 1:
-        net1_used = True
-        net1_size *= self.exe.data_par
-      else:
-        net2_used = True
-        net2_size *= self.exe.data_par
+      used[self.exe.data_par_net] = True
+      size[self.exe.data_par_net] *= self.exe.data_par
     self._dp_net = self.sys.get_network(self.exe.data_par_net)
 
-    if net1_used and net1_size > self.sys.get_network(1).size:
-      raise self.Error('Network tier1 isn\'t big enough')
-    if net2_used and net2_size > self.sys.get_network(2).size:
-      raise self.Error('Network tier2 isn\'t big enough')
+    for tier_used, tier_size, tier in zip(
+        used, size, range(self.sys.num_networks)):
+      if tier_used and tier_size > self.sys.get_network(tier).size:
+        raise self.Error(f'Network tier{tier} isn\'t big enough')
 
   def _compute_block_stats(self):
     """

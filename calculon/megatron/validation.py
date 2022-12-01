@@ -89,7 +89,7 @@ class Validation(calculon.CommandLine):
         mt = Megatron(app, logger)
         mt.compile(exe)
         mt.run(syst)
-        stats = mt.get_json()
+        stats = mt.get_stats_json()
         data[model][mode]['profile_time'] = get_profile(model, mode)
         data[model][mode]['actual_time'] = stats["total_time"]
         data[model][mode]['memory_req'] = stats["proc_mem_tier1_cap_req"]

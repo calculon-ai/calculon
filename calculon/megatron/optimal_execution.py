@@ -35,6 +35,8 @@ def get_batch_size(data_par, max_batch_size):
 
 
 def search(debug, num_procs, max_batch_size, app, syst, tp, pp):
+  num_nets = syst.num_networks
+
   best_rate = None
   best_stats = None
   best_exe = None
@@ -62,9 +64,9 @@ def search(debug, num_procs, max_batch_size, app, syst, tp, pp):
                     activations_offloads = [True, False]
                   for activations_offload in activations_offloads:
                     for optimizer_offload in [True, False]:
-                      for tn in pick(tp>1, [1, 2], [1]):
-                        for pn in pick(pp>1, [1, 2], [1]):
-                          for dn in pick(dp>1, [1, 2], [1]):
+                      for tn in pick(tp>1, range(num_nets), [0]):
+                        for pn in pick(pp>1, range(num_nets), [0]):
+                          for dn in pick(dp>1, range(num_nets), [0]):
                             exe_count += 1
                             exe_json = {
                               'num_procs': num_procs,

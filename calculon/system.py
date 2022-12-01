@@ -30,43 +30,18 @@ class System:
     self.mem1 = Memory(cfg['mem1'])
     self.mem2 = Memory(cfg['mem2'])
 
-    """
-    # bw = GB/s
-    # cap = GB
-    self.mem_tier1_bw = cfg['mem_tier1_bw'] * 1e9
-    self.mem_tier1_cap = cfg['mem_tier1_cap'] * 1024**3
-    self.mem_tier1_eff = cfg['mem_tier1_eff']
-    assert 0 < self.mem_tier1_eff <= 1.0
-
-    self.mem_tier2_bw = cfg['mem_tier2_bw'] * 1e9
-    self.mem_tier2_cap = cfg['mem_tier2_cap'] * 1024**3
-    self.mem_tier2_eff = cfg['mem_tier2_eff']
-    assert 0 < self.mem_tier2_eff <= 1.0
-    """
-
     self.proc_mode = cfg['processing_mode']
     assert self.proc_mode in ['roofline', 'no_overlap']
 
-    self.net_tier1 = Network(cfg['net_tier1'])
-    self.net_tier2 = Network(cfg['net_tier2'])
+    self.networks = [Network(n) for n in cfg['networks']]
 
-  """
-  def memory_throughput(self, tier):
-    if tier == 1:
-      return self.mem_tier1_bw * self.mem_tier1_eff
-    elif tier == 2:
-      return self.mem_tier2_bw * self.mem_tier2_eff
-    else:
-      assert False
-  """
+  @property
+  def num_networks(self):
+    return len(self.networks)
 
   def get_network(self, tier):
-    if tier == 1:
-      return self.net_tier1
-    elif tier == 2:
-      return self.net_tier2
-    else:
-      assert False, f'Bad network tier ID: {tier}'
+    assert tier < len(self.networks), f'Bad network tier ID: {tier}'
+    return self.networks[tier]
 
   def compute_flops_time(self, layer, bw):
     flops = layer.get_bw_flops() if bw else layer.get_fw_flops()

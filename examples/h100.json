@@ -37,30 +37,31 @@
     ]
   },
   "processing_mode": "no_overlap",
-  "net_tier1": {
-    "bandwidth": 450,
-    "efficiency": 0.6,
-    "size": 256,
-    "latency": 0.000001,
-    "ops": {
-      "p2p": 1.0,
-      "reduce_scatter": 1.0,
-      "all_gather": 1.0,
-      "all_reduce": 0.75
-    },
-    "collective_minus1_scalar": false
-  },
-  "net_tier2": {
-    "bandwidth": 50,
-    "efficiency": 0.9,
-    "size": 65536,
-    "latency": 0.000002,
-    "ops": {
-      "p2p": 0.5,
-      "reduce_scatter": 1.0,
-      "all_gather": 1.0,
-      "all_reduce": 1.0
-    },
-    "collective_minus1_scalar": true
-  }
+  "networks": [
+    {
+      "bandwidth": 450,
+      "efficiency": 0.6,
+      "size": 256,
+      "latency": 0.000001,
+      "ops": {
+        "p2p": 1.0,
+        "reduce_scatter": 1.0,
+        "all_gather": 1.0,
+        "all_reduce": 0.75
+      },
+      "collective_minus1_scalar": false
+    },{
+      "bandwidth": 50,
+      "efficiency": 0.9,
+      "size": 65536,
+      "latency": 0.000002,
+      "ops": {
+        "p2p": 0.5,
+        "reduce_scatter": 1.0,
+        "all_gather": 1.0,
+        "all_reduce": 1.0
+      },
+      "collective_minus1_scalar": true
+    }
+  ]
 }
