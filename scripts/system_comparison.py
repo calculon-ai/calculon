@@ -42,7 +42,8 @@ def main(args):
   print('Creating CSV')
   with open(csv_file, 'w') as csv:
     print('name,batch_size,batch_time,sample_rate,ceff,seff,teff,mem1,mem2,'
-          'off_bw,tp,pp,dp,tn,pn,dn,pi,mbs,recompute,tp_comm,redo',
+          'off_bw,tp,pp,dp,tn,pn,dn,pi,mbs,recompute,tp_comm,redo,w_off,a_off,'
+          'o_off',
           file=csv)
     for name, nodes in configs:
       config = os.path.join(args.directory, f'{name}.json')
@@ -75,9 +76,12 @@ def main(args):
       mem1 = s['proc_mem_tier1_cap_req'] / 1024**3
       mem2 = s['proc_mem_tier2_cap_req'] / 1024**3
       off_bw = s['offload_mem_bw_req'] / 1e9
+      woff = e['weight_offload']
+      aoff = e['activations_offload']
+      ooff = e['optimizer_offload']
       print(f'{name},{batch_size},{batch_time},{sample_rate},{ceff},{seff},'
             f'{teff},{mem1},{mem2},{off_bw},{tp},{pp},{dp},{tn},{pn},{dn},'
-            f'{pi},{mbs},{ar},{tp_comm},{redo}',
+            f'{pi},{mbs},{ar},{tp_comm},{redo},{woff},{aoff},{ooff}',
             file=csv)
 
 
