@@ -6,6 +6,15 @@ import os
 import subprocess
 
 
+def get_executions(logfile):
+  with open(logfile, 'r') as fd:
+    lines = fd.readlines()
+  total = int(lines[0].strip().split()[-1])
+  good = int(lines[1].strip().split()[-1])
+  bad = int(lines[2].strip().split()[-1])
+  return total, good, bad
+
+
 def main(args):
   assert os.path.isdir(args.directory)
   os.makedirs(os.path.join(args.directory, args.application_name), exist_ok=True)
@@ -43,10 +52,11 @@ def main(args):
   with open(csv_file, 'w') as csv:
     print('name,batch_size,batch_time,sample_rate,ceff,seff,teff,mem1,mem2,'
           'off_bw,tp,pp,dp,tn,pn,dn,pi,mbs,recompute,tp_comm,redo,w_off,a_off,'
-          'o_off',
+          'o_off,total,good,bad',
           file=csv)
     for name, nodes in configs:
       config = os.path.join(args.directory, f'{name}.json')
+      log = os.path.join(args.directory, args.application_name, f'{name}.log')
       exe = os.path.join(args.directory, args.application_name, f'{name}_exe.json')
       stats = os.path.join(args.directory, args.application_name, f'{name}_stats.json')
       raw = os.path.join(args.directory, args.application_name, f'{name}_raw.json')
@@ -79,9 +89,11 @@ def main(args):
       woff = e['weight_offload']
       aoff = e['activations_offload']
       ooff = e['optimizer_offload']
+      total, good, bad = get_executions(log)
       print(f'{name},{batch_size},{batch_time},{sample_rate},{ceff},{seff},'
             f'{teff},{mem1},{mem2},{off_bw},{tp},{pp},{dp},{tn},{pn},{dn},'
-            f'{pi},{mbs},{ar},{tp_comm},{redo},{woff},{aoff},{ooff}',
+            f'{pi},{mbs},{ar},{tp_comm},{redo},{woff},{aoff},{ooff},{total},'
+            f'{good},{bad}',
             file=csv)
 
 
