@@ -16,21 +16,21 @@ def get_executions(logfile):
 
 
 def main(args):
-  assert os.path.isdir(args.directory)
-  os.makedirs(os.path.join(args.directory, args.application_name), exist_ok=True)
+  if not os.path.isdir(args.directory):
+    os.makedirs(args.directory, exist_ok=True)
 
-  configs = os.path.join(args.directory, 'configs.json')
-  assert os.path.isfile(configs)
-  with open(configs, 'r') as fd:
+  assert os.path.isfile(args.configs)
+  with open(args.configs, 'r') as fd:
     configs = json.load(fd)
 
-  csv_file = os.path.join(args.directory, args.application_name, 'syscomp.csv')
-  for name, nodes in configs:
-    config = os.path.join(args.directory, f'{name}.json')
-    log = os.path.join(args.directory, args.application_name, f'{name}.log')
-    exe = os.path.join(args.directory, args.application_name, f'{name}_exe.json')
-    stats = os.path.join(args.directory, args.application_name, f'{name}_stats.json')
-    raw = os.path.join(args.directory, args.application_name, f'{name}_raw.json')
+  csv_file = os.path.join(args.directory, 'syscomp.csv')
+  for config, nodes in configs:
+    assert os.path.isfile(config), f'"{config}" does not exist'
+    name = os.path.splitext(os.path.basename(config))[0]
+    log = os.path.join(args.directory, f'{name}.log')
+    exe = os.path.join(args.directory, f'{name}_exe.json')
+    stats = os.path.join(args.directory, f'{name}_stats.json')
+    raw = os.path.join(args.directory, f'{name}_raw.json')
 
     if args.batch_mode <= 0:
       max_batch_size = nodes
@@ -54,12 +54,13 @@ def main(args):
           'off_bw,tp,pp,dp,tn,pn,dn,pi,mbs,recompute,tp_comm,redo,w_off,a_off,'
           'o_off,total,good,bad',
           file=csv)
-    for name, nodes in configs:
-      config = os.path.join(args.directory, f'{name}.json')
-      log = os.path.join(args.directory, args.application_name, f'{name}.log')
-      exe = os.path.join(args.directory, args.application_name, f'{name}_exe.json')
-      stats = os.path.join(args.directory, args.application_name, f'{name}_stats.json')
-      raw = os.path.join(args.directory, args.application_name, f'{name}_raw.json')
+    for config, nodes in configs:
+      assert os.path.isfile(config), f'"{config}" does not exist'
+      name = os.path.splitext(os.path.basename(config))[0]
+      log = os.path.join(args.directory, f'{name}.log')
+      exe = os.path.join(args.directory, f'{name}_exe.json')
+      stats = os.path.join(args.directory, f'{name}_stats.json')
+      raw = os.path.join(args.directory, f'{name}_raw.json')
 
       with open(exe, 'r') as fd:
         e = json.load(fd)
@@ -100,8 +101,8 @@ def main(args):
 if __name__ == '__main__':
   ap = argparse.ArgumentParser()
   ap.add_argument('application', type=str, help='Application configuration')
-  ap.add_argument('application_name', type=str, help='Application name')
-  ap.add_argument('directory', type=str, help='Directory of sweep')
+  ap.add_argument('configs', type=str, help='Path to configs.json')
   ap.add_argument('batch_mode', type=int, help='0 for num_procs, >0 for max')
+  ap.add_argument('directory', type=str, help='Output directory')
   args = ap.parse_args()
   main(args)
