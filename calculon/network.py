@@ -19,6 +19,8 @@
 class Network:
   """Configuration for a network."""
 
+  kKeys = set(['bandwidth', 'efficiency', 'size', 'latency', 'ops',
+               'collective_minus1_scalar', 'must_be_filled'])
   kNetOps = set(['p2p', 'reduce_scatter', 'all_gather', 'all_reduce'])
   kCollectives = set(['reduce_scatter', 'all_gather', 'all_reduce'])
 
@@ -34,8 +36,7 @@ class Network:
     return valid
 
   def __init__(self, cfg):
-    assert set(['bandwidth', 'efficiency', 'size', 'latency', 'ops',
-                'collective_minus1_scalar']) == set(cfg.keys())
+    assert Network.kKeys == set(cfg.keys())
     self._bw = cfg['bandwidth'] * 1e9  # Specified in GB/s
     assert self._bw > 0
     self._eff = cfg['efficiency']
@@ -48,10 +49,15 @@ class Network:
     assert set(self._ops.keys()) == Network.kNetOps
     self._col_m1_scalar = cfg['collective_minus1_scalar']
     assert isinstance(self._col_m1_scalar, bool)
+    self._must_be_filled = cfg['must_be_filled']
 
   @property
   def size(self):
     return self._size
+
+  @property
+  def must_be_filled(self):
+    return self._must_be_filled
 
   def time(self, op, op_size, comm_size):
     """ Computes the time taken for a network operation.

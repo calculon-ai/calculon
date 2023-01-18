@@ -688,8 +688,12 @@ class Megatron:
 
     for tier_used, tier_size, tier in zip(
         used, size, range(self.sys.num_networks)):
-      if tier_used and tier_size > self.sys.get_network(tier).size:
-        raise self.Error(f'Network tier{tier} isn\'t big enough')
+      if tier_used:
+        if tier_size > self.sys.get_network(tier).size:
+          raise self.Error(f'Network tier{tier} isn\'t big enough')
+        if (self.sys.get_network(tier).must_be_filled and
+            self.sys.get_network(tier).size % tier_size != 0):
+          raise self.Error(f'Network tier{tier} isn\'t fully used')
 
   def _compute_block_stats(self):
     """
