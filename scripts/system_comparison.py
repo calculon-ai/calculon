@@ -6,7 +6,9 @@ import os
 import subprocess
 
 
-def get_executions(logfile):
+def get_executions(logfile, verbose):
+  if verbose:
+    print(f'  Opening {logfile}')
   with open(logfile, 'r') as fd:
     lines = fd.readlines()
   total = int(lines[0].strip().split()[-1])
@@ -62,8 +64,12 @@ def main(args):
       stats = os.path.join(args.directory, f'{name}_stats.json')
       raw = os.path.join(args.directory, f'{name}_raw.json')
 
+      if args.verbose:
+        print(f'  Opening {exe}')
       with open(exe, 'r') as fd:
         e = json.load(fd)
+      if args.verbose:
+        print(f'  Opening {stats}')
       with open(stats, 'r') as fd:
         s = json.load(fd)
 
@@ -90,7 +96,7 @@ def main(args):
       woff = e['weight_offload']
       aoff = e['activations_offload']
       ooff = e['optimizer_offload']
-      total, good, bad = get_executions(log)
+      total, good, bad = get_executions(log, args.verbose)
       print(f'{name},{batch_size},{batch_time},{sample_rate},{ceff},{seff},'
             f'{teff},{mem1},{mem2},{off_bw},{tp},{pp},{dp},{tn},{pn},{dn},'
             f'{pi},{mbs},{ar},{tp_comm},{redo},{woff},{aoff},{ooff},{total},'
@@ -104,5 +110,6 @@ if __name__ == '__main__':
   ap.add_argument('configs', type=str, help='Path to configs.json')
   ap.add_argument('batch_mode', type=int, help='0 for num_procs, >0 for max')
   ap.add_argument('directory', type=str, help='Output directory')
+  ap.add_argument('-v', '--verbose', action='store_true', help='Verbose output')
   args = ap.parse_args()
   main(args)
