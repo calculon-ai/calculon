@@ -49,8 +49,9 @@
         "all_gather": 1.0,
         "all_reduce": 1.5
       },
-      "collective_minus1_scalar": true
-    }, {
+      "collective_minus1_scalar": true,
+      "must_be_filled": true
+    },{
       "bandwidth": 25,
       "efficiency": 0.9,
       "size": 65536,
@@ -61,7 +62,8 @@
         "all_gather": 1.0,
         "all_reduce": 1.0
       },
-      "collective_minus1_scalar": true
+      "collective_minus1_scalar": true,
+      "must_be_filled": false
     }
   ]
 }

@@ -49,7 +49,8 @@
         "all_gather": 1.0,
         "all_reduce": 0.75
       },
-      "collective_minus1_scalar": false
+      "collective_minus1_scalar": false,
+      "must_be_filled": true
     },{
       "bandwidth": 50,
       "efficiency": 0.9,
@@ -61,7 +62,8 @@
         "all_gather": 1.0,
         "all_reduce": 1.0
       },
-      "collective_minus1_scalar": true
+      "collective_minus1_scalar": true,
+      "must_be_filled": false
     }
   ]
 }
