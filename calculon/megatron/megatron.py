@@ -383,6 +383,8 @@ class Megatron:
     j['tp_comm_time'] = self.get_tp_comm_time()
     j['pp_comm_time'] = self.get_pp_comm_time()
     j['dp_comm_time'] = self.get_dp_comm_time()
+    j['fw_offload_exposed_time'] = self.get_fw_offload_overhead()
+    j['bw_offload_exposed_time'] = self.get_bw_offload_overhead()
     j['total_time'] = self.get_total_time()
     j['act_offload_bw_req'] = self.get_act_offload_bw_req()
     j['weight_offload_bw_req'] = self.get_weight_offload_bw_req()
