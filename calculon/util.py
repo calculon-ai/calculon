@@ -6,9 +6,9 @@ def human_format(value, v_type=None, precision=3):
     suffix = ''
   elif v_type == 'bytes':
     step = 1024
-    suffix = 'B'
+    suffix = 'iB'
   elif v_type == 'bandwidth':
-    step = 1024
+    step = 1000
     suffix = 'B/s'
   elif v_type == 'flops':
     step = 1000
