@@ -53,8 +53,8 @@ def main(args):
   print('Creating CSV')
   with open(csv_file, 'w') as csv:
     print('name,batch_size,batch_time,sample_rate,ceff,seff,teff,mem1,mem2,'
-          'off_bw,tp,pp,dp,tn,pn,dn,pi,mbs,recompute,tp_comm,redo,w_off,a_off,'
-          'o_off,total,good,bad',
+          'tp,pp,dp,tn,pn,dn,pi,mbs,recompute,tp_comm,redo,w_off,a_off,'
+          'o_off,dp_exp,fw_off_exp,bw_off_exptotal,good,bad',
           file=csv)
     for config, nodes in configs:
       assert os.path.isfile(config), f'"{config}" does not exist'
@@ -92,15 +92,17 @@ def main(args):
       teff = s['total_efficiency']
       mem1 = s['proc_mem_tier1_cap_req'] / 1024**3
       mem2 = s['proc_mem_tier2_cap_req'] / 1024**3
-      off_bw = s['offload_mem_bw_req'] / 1e9
       woff = e['weight_offload']
       aoff = e['activations_offload']
       ooff = e['optimizer_offload']
+      dp_exp = s['dp_exposed_comm_time']
+      fw_off_exp = s['fw_offload_exposed_time']
+      bw_off_exp = s['fw_offload_exposed_time']
       total, good, bad = get_executions(log, args.verbose)
       print(f'{name},{batch_size},{batch_time},{sample_rate},{ceff},{seff},'
-            f'{teff},{mem1},{mem2},{off_bw},{tp},{pp},{dp},{tn},{pn},{dn},'
-            f'{pi},{mbs},{ar},{tp_comm},{redo},{woff},{aoff},{ooff},{total},'
-            f'{good},{bad}',
+            f'{teff},{mem1},{mem2},{tp},{pp},{dp},{tn},{pn},{dn},'
+            f'{pi},{mbs},{ar},{tp_comm},{redo},{woff},{aoff},{ooff},{dp_exp},'
+            f'{fw_off_exp},{bw_off_exp},{total},{good},{bad}',
             file=csv)
 
 
