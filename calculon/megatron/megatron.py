@@ -382,7 +382,7 @@ class Megatron:
     j['bubble_time'] = self.get_bubble_time()
     j['tp_comm_time'] = self.get_tp_comm_time()
     j['pp_comm_time'] = self.get_pp_comm_time()
-    j['dp_comm_time'] = self.get_dp_comm_time()
+    j['dp_exposed_comm_time'] = self.get_dp_comm_time()
     j['fw_offload_exposed_time'] = self.get_fw_offload_overhead()
     j['bw_offload_exposed_time'] = self.get_bw_offload_overhead()
     j['total_time'] = self.get_total_time()
