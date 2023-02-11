@@ -79,6 +79,8 @@ class Megatron:
       assert self.global_batch_size % self.data_par == 0
       self._local_batch_size = self.global_batch_size // self.data_par
       assert self._local_batch_size % self.microbatch_size == 0
+      if self.pipeline_par == 1:
+        assert self.microbatch_size == self._local_batch_size
       self._num_microbatches = self._local_batch_size // self.microbatch_size
       self.datatype = cfg['datatype']
       self.activation_recompute = cfg['activation_recompute']
@@ -203,6 +205,8 @@ class Megatron:
       seq_size, tensor_par, data_par, global_batch_size, pipeline_par):
     assert global_batch_size % data_par == 0
     local_batch_size = global_batch_size // data_par
+    if pipeline_par == 1:
+      yield local_batch_size
     for cand in Megatron._factors(local_batch_size):
       batch_seq = cand * seq_size
       if batch_seq % tensor_par == 0:
@@ -264,7 +268,6 @@ class Megatron:
     self._block_re_mem_accessed = None
     self._block_re_mem_time = None
     self._block_re_time = None
-    self._block_recompute_mem_saving = None
     self._block_bw_flops = None
     self._block_bw_flops_time = None
     self._block_bw_mem_accessed = None
@@ -293,7 +296,8 @@ class Megatron:
     self._block_dp_time = None
 
     self._block_weight_space = None
-    self._block_act_space = None
+    self._block_act_working_space = None
+    self._block_act_storage_space = None
     self._block_act_checkpoint_size = None
     self._block_weight_grad_space = None
     self._block_weight_grad_space_no_sharding = None
@@ -345,7 +349,6 @@ class Megatron:
     j['block_re_mem_accessed'] = self._block_re_mem_accessed
     j['block_re_mem_time'] = self._block_re_mem_time
     j['block_re_time'] = self._block_re_time
-    j['block_recompute_mem_saving'] = self._block_recompute_mem_saving
     j['block_bw_flops'] = self._block_bw_flops
     j['block_bw_flops_time'] = self._block_bw_flops_time
     j['block_bw_mem_accessed'] = self._block_bw_mem_accessed
@@ -360,7 +363,8 @@ class Megatron:
     j['block_dp_size'] = self._block_dp_size
 
     j['block_weight_space'] = self._block_weight_space
-    j['block_act_space'] = self._block_act_space
+    j['block_act_working_space'] = self._block_act_working_space
+    j['block_act_storage_space'] = self._block_act_storage_space
     j['block_act_checkpoint_size'] = self._block_act_checkpoint_size
     j['block_weight_grad_space'] = self._block_weight_grad_space
     j['block_weight_grad_space_no_sharding'] = \
@@ -717,14 +721,14 @@ class Megatron:
     self._block_fw_mem_time = 0
     self._block_fw_time = 0
     self._block_weight_space = 0
-    self._block_act_space = 0
+    self._block_act_working_space = 0
+    self._block_act_storage_space = 0
     # We use this block for self.exe.training, but initialize anyway
     self._block_re_flops = 0
     self._block_re_flops_time = 0
     self._block_re_mem_accessed = 0
     self._block_re_mem_time = 0
     self._block_re_time = 0
-    self._block_recompute_mem_saving = 0
     self._block_bw_flops = 0
     self._block_bw_flops_time = 0
     self._block_bw_mem_accessed = 0
@@ -750,8 +754,6 @@ class Megatron:
           self._block_re_mem_accessed += self._block_fw_mem_accessed
           self._block_re_mem_time += self._block_fw_mem_time
           self._block_re_time += self.sys.compute_processing_time(layer, False)
-        if prev_layer_recompute:
-          self._block_recompute_mem_saving += layer.get_activation()
         self._block_bw_flops += layer.get_bw_flops()
         self._block_bw_flops_time += self.sys.compute_flops_time(layer, True)
         self._block_bw_mem_accessed += layer.get_bw_mem_accessed()
@@ -760,8 +762,11 @@ class Megatron:
 
       # Accumulate space requirements per block
       self._block_weight_space += layer.get_weight()
-      self._block_act_space += layer.get_activation()
+      self._block_act_working_space += layer.get_activation()
+      self._block_act_storage_space += layer.get_activation()
       if self.exe.training:
+        if prev_layer_recompute:
+          self._block_act_storage_space -= layer.get_activation()
         self._block_weight_grad_space += layer.get_weight_grad()
         self._block_weight_grad_space_no_sharding += layer.get_weight_grad(
           sharded=False)
@@ -809,10 +814,10 @@ class Megatron:
                      human_format(layer.get_optimizer(), 'bytes'))
       self.log.debug("%s %s %s", layer.name, 'Incremental Weight:',
                      human_format(self._block_weight_space, 'bytes'))
-      self.log.debug("%s %s %s", layer.name, 'Incremental Act:',
-                     human_format(self._block_act_space, 'bytes'))
-      self.log.debug("%s %s %s", layer.name, 'Incremental Recompute Saving:',
-                     human_format(self._block_recompute_mem_saving, 'bytes'))
+      self.log.debug("%s %s %s", layer.name, 'Incremental Act Working space:',
+                     human_format(self._block_act_working_space, 'bytes'))
+      self.log.debug("%s %s %s", layer.name, 'Incremental Act Storage space:',
+                     human_format(self._block_act_storage_space, 'bytes'))
       self.log.debug("%s %s %s", layer.name, 'Incremental Weight grad:',
                      human_format(self._block_weight_grad_space, 'bytes'))
       self.log.debug("%s %s %s", layer.name, 'Incremental Act grad:',
@@ -1198,11 +1203,12 @@ class Megatron:
     # (no scaling by L/gpu)
     if self.exe.training:
       if self.exe.activation_recompute == "full":
-        assert self._block_act_space == self._block_recompute_mem_saving, \
+        assert self._block_act_storage_space == 0, \
           "We expect with full act recomputation we recompute ALL activations"
-        self._act_space = self._block_act_space
-        # We need to store checkpoints for all microbatches before we compute
-        # BW pass, with 1F1B schedule it is pipeline_par microbatches
+        self._act_space = self._block_act_working_space
+        # We would need to store checkpoints for all microbatches before we compute
+        # BW pass with regular schedule, but we ONLY use 1F1B schedule
+        # With 1F1B schedule we only keep `pipeline_par` microbatches
         self._act_checkpoint_size = self._blocks_per_proc * \
           self._block_act_checkpoint_size
         # Keep activations for all pipeline stages for PP
@@ -1214,11 +1220,9 @@ class Megatron:
           assert self.exe.pipeline_interleaving == 1
           self._act_checkpoint_size *= self.exe.pipeline_par
       else:
-        # with partial activation recomputation we need to reclaim memory
-        if self.exe.activation_recompute == "attn_only":
-          self._block_act_space -= self._block_recompute_mem_saving
         # Without full recompute, we keep activations for all blocks on the GPU
-        self._act_space = self._block_act_space * self._blocks_per_proc
+        self._act_space = self._block_act_working_space + (
+          (self._blocks_per_proc - 1) * self._block_act_storage_space)
         # Without full recompute, we don't need checkpoints
         self._act_checkpoint_size = 0
         # Keep activations for all pipeline stages for PP
@@ -1232,7 +1236,7 @@ class Megatron:
       # Only need activation grads for a single block
       self._act_grad_space = self._block_act_grad_space
     else:
-      self._act_space = self._block_act_space
+      self._act_space = self._block_act_working_space
       self._act_checkpoint_size = 0
       self._act_grad_space = 0
 
@@ -1289,7 +1293,7 @@ class Megatron:
     assert self._bw_mem_time >= self._block_bw_mem_time
     assert self._bw_time >= self._block_bw_time
     assert self._weight_space >= self._block_weight_space
-    assert self._act_space >= self._block_act_space
+    assert self._act_space >= self._block_act_working_space
     assert self._act_checkpoint_size >= self._block_act_checkpoint_size
     assert self._weight_grad_space >= self._block_weight_grad_space_no_sharding
     assert self._act_grad_space == self._block_act_grad_space
@@ -1337,7 +1341,7 @@ class Megatron:
       weight_offload_size = 0
     if self.exe.activations_offload:
       if self.exe.activation_recompute != 'full':
-        act_offload_size = self._block_act_space
+        act_offload_size = self._block_act_storage_space
       else:
         act_offload_size = self._block_act_checkpoint_size
     else:
@@ -1351,7 +1355,7 @@ class Megatron:
         bw_offload_size += self._block_weight_space
       if self.exe.activations_offload:
         if self.exe.activation_recompute != 'full':
-          bw_offload_size += self._block_act_space
+          bw_offload_size += self._block_act_storage_space
         else:
           bw_offload_size += self._block_act_checkpoint_size
       if self.exe.optimizer_offload:
@@ -1500,12 +1504,12 @@ class Megatron:
       tier1 += self.get_weight_space()
     if self.exe.activations_offload:
       if self.exe.activation_recompute != 'full':
-        tier1 += self._block_act_space * 2
+        tier1 += self._block_act_working_space + self._block_act_storage_space
         tier2 += self.get_act_space()
         assert self.get_act_checkpoint_size() == 0
       else:
         tier1 += self._block_act_checkpoint_size * 2
-        tier1 += self._block_act_space
+        tier1 += self._block_act_working_space
         tier2 += self.get_act_checkpoint_size()
     else:
       tier1 += self.get_act_space()
@@ -1535,7 +1539,7 @@ class Megatron:
     # prefetch it (read) during BW pass for block (i-1)
     # After BW pass activations are discarded
     if self.exe.activation_recompute != 'full':
-      act_offload_size = self._block_act_space
+      act_offload_size = self._block_act_storage_space
     else:
       act_offload_size = self._block_act_checkpoint_size
     offload_time = min(
