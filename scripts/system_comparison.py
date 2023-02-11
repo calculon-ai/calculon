@@ -95,14 +95,17 @@ def main(args):
       woff = e['weight_offload']
       aoff = e['activations_offload']
       ooff = e['optimizer_offload']
+      tp_time = s['tp_comm_time']
+      pp_time = s['pp_comm_time']
       dp_exp = s['dp_exposed_comm_time']
       fw_off_exp = s['fw_offload_exposed_time']
       bw_off_exp = s['fw_offload_exposed_time']
       total, good, bad = get_executions(log, args.verbose)
       print(f'{name},{batch_size},{batch_time},{sample_rate},{ceff},{seff},'
             f'{teff},{mem1},{mem2},{tp},{pp},{dp},{tn},{pn},{dn},'
-            f'{pi},{mbs},{ar},{tp_comm},{redo},{woff},{aoff},{ooff},{dp_exp},'
-            f'{fw_off_exp},{bw_off_exp},{total},{good},{bad}',
+            f'{pi},{mbs},{ar},{tp_comm},{redo},{woff},{aoff},{ooff},{tp_time},'
+            f'{pp_time},{dp_exp},{fw_off_exp},{bw_off_exp},{total},{good},'
+            '{bad}',
             file=csv)
 
 
