@@ -207,10 +207,11 @@ class Megatron:
     local_batch_size = global_batch_size // data_par
     if pipeline_par == 1:
       yield local_batch_size
-    for cand in Megatron._factors(local_batch_size):
-      batch_seq = cand * seq_size
-      if batch_seq % tensor_par == 0:
-        yield cand
+    else:
+      for cand in Megatron._factors(local_batch_size):
+        batch_seq = cand * seq_size
+        if batch_seq % tensor_par == 0:
+          yield cand
 
   @staticmethod
   def can_redo_ag(tensor_par_comm_type, activation_recompute):
