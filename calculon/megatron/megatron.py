@@ -206,6 +206,8 @@ class Megatron:
     assert global_batch_size % data_par == 0
     local_batch_size = global_batch_size // data_par
     if pipeline_par == 1:
+      batch_seq = local_batch_size * seq_size
+      assert batch_seq % tensor_par == 0
       yield local_batch_size
     else:
       for cand in Megatron._factors(local_batch_size):

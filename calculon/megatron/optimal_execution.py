@@ -44,6 +44,8 @@ def search(debug, num_procs, max_batch_size, app, syst, tp, pp):
   good_exe_count = 0
   bad_exe_count = 0
 
+  has_mem2 = syst.mem2.capacity > 0
+
   dp = Megatron.get_data_parallelism(num_procs, tp, pp)
   for ppint in Megatron.get_valid_pipeline_interleavings(app.num_blocks, pp):
     batch_size = get_batch_size(dp, max_batch_size)
@@ -57,13 +59,14 @@ def search(debug, num_procs, max_batch_size, app, syst, tp, pp):
                                             activation_recompute)
             for seq_par_ag_redo in pick(can_redo, [True, False], [False]):
               for data_par_overlap in pick(dp>1, [True, False], [False]):
-                for weight_offload in [True, False]:
-                  if activation_recompute == 'full':
+                for weight_offload in pick(has_mem2, [True, False], [False]):
+                  if activation_recompute == 'full' or not has_mem2:
                     activations_offloads = [False]
                   else:
                     activations_offloads = [True, False]
                   for activations_offload in activations_offloads:
-                    for optimizer_offload in [True, False]:
+                    for optimizer_offload in pick(has_mem2, [True, False],
+                                                  [False]):
                       for tn in pick(tp>1, range(num_nets), [0]):
                         for pn in pick(pp>1, range(num_nets), [0]):
                           for dn in pick(dp>1, range(num_nets), [0]):
@@ -93,7 +96,7 @@ def search(debug, num_procs, max_batch_size, app, syst, tp, pp):
 
                             if not debug:
                               try:
-                                logger = logging.getLogger()
+                                logger = logging.Logger('sub')
                                 model = Megatron(app, logger)
                                 model.compile(Megatron.Execution(exe_json))
                                 model.run(syst)
@@ -105,6 +108,8 @@ def search(debug, num_procs, max_batch_size, app, syst, tp, pp):
                                   best_exe = exe_json
                                   best_stats = stats
                               except Megatron.Error as ex:
+                                logger = logging.getLogger()
+                                logger.debug(f'JSON:{exe_json}\nERROR:{ex}\n')
                                 bad_exe_count += 1
   return (best_rate, best_stats, best_exe, exe_count, good_exe_count,
           bad_exe_count, tp, pp)
