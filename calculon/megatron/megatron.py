@@ -79,8 +79,6 @@ class Megatron:
       assert self.global_batch_size % self.data_par == 0
       self._local_batch_size = self.global_batch_size // self.data_par
       assert self._local_batch_size % self.microbatch_size == 0
-      if self.pipeline_par == 1:
-        assert self.microbatch_size == self._local_batch_size
       self._num_microbatches = self._local_batch_size // self.microbatch_size
       self.datatype = cfg['datatype']
       self.activation_recompute = cfg['activation_recompute']
@@ -205,15 +203,10 @@ class Megatron:
       seq_size, tensor_par, data_par, global_batch_size, pipeline_par):
     assert global_batch_size % data_par == 0
     local_batch_size = global_batch_size // data_par
-    if pipeline_par == 1:
-      batch_seq = local_batch_size * seq_size
-      assert batch_seq % tensor_par == 0
-      yield local_batch_size
-    else:
-      for cand in Megatron._factors(local_batch_size):
-        batch_seq = cand * seq_size
-        if batch_seq % tensor_par == 0:
-          yield cand
+    for cand in Megatron._factors(local_batch_size):
+      batch_seq = cand * seq_size
+      if batch_seq % tensor_par == 0:
+        yield cand
 
   @staticmethod
   def can_redo_ag(tensor_par_comm_type, activation_recompute):
