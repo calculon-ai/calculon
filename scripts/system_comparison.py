@@ -54,7 +54,7 @@ def main(args):
   with open(csv_file, 'w') as csv:
     print('name,batch_size,batch_time,sample_rate,ceff,seff,teff,mem1,mem2,'
           'tp,pp,dp,tn,pn,dn,pi,mbs,recompute,tp_comm,redo,w_off,a_off,'
-          'o_off,dp_exp,fw_off_exp,bw_off_exptotal,good,bad',
+          'o_off,tp_time,pp_time,dp_exp,fw_off_exp,bw_off_exp,total,good,bad',
           file=csv)
     for config, nodes in configs:
       assert os.path.isfile(config), f'"{config}" does not exist'
@@ -105,7 +105,7 @@ def main(args):
             f'{teff},{mem1},{mem2},{tp},{pp},{dp},{tn},{pn},{dn},'
             f'{pi},{mbs},{ar},{tp_comm},{redo},{woff},{aoff},{ooff},{tp_time},'
             f'{pp_time},{dp_exp},{fw_off_exp},{bw_off_exp},{total},{good},'
-            '{bad}',
+            f'{bad}',
             file=csv)
 
 
