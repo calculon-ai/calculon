@@ -1068,17 +1068,21 @@ class Megatron:
       (self._baseblocks_per_chunk * self._baseblock_fw_time) +
       (self._edgeblocks_per_chunk * self._edgeblock_fw_time))
     chunk_bw_time = (
-      (self._baseblocks_per_chunk * (
-        self._baseblock_bw_time + self._baseblock_bw_offload_overhead)) +
-      (self._edgeblocks_per_chunk * (
-        self._edgeblock_bw_time + self._edgeblock_bw_offload_overhead)))
+      (self._baseblocks_per_chunk * self._baseblock_bw_time) +
+      (self._edgeblocks_per_chunk * self._edgeblock_bw_time))
     chunk_time = chunk_fw_time + chunk_bw_time
     # Block bubbles appear due to uneven division of blocks by pipeline stages
     # and result in the schedule bubble shorten by the missing edge blocks on
     # the later pipeline stages (missing block case)
-    bubble_reduction_time = self._bubble_reduction_blocks * (
-      self._baseblock_fw_time + self._edgeblock_fw_time +
-      self._baseblock_bw_time + self._edgeblock_bw_time) / 2
+    if self._baseblocks_per_chunk > 0:
+      # We cut last block of chunk, which is half-edge (has PP comm in the end)
+      bubble_reduction_time = self._bubble_reduction_blocks * (
+        self._baseblock_fw_time + self._edgeblock_fw_time +
+        self._baseblock_bw_time + self._edgeblock_bw_time) / 2
+    else:
+      # If chunk doesn't have base blocks, we cut edge block
+      bubble_reduction_time = self._bubble_reduction_blocks * (
+        self._edgeblock_fw_time + self._edgeblock_bw_time)
     # With PP interleaving we assume that we move through every chunk at least
     # PP mini batches. If num_microbatches < PP, then we have extra bubbles
     # (missing microbatches case). We have the bubbles in the last microbatches
@@ -1099,12 +1103,20 @@ class Megatron:
 
     self.log.debug("%s %s", 'Block FW time:', self._block_fw_time)
     self.log.debug("%s %s", 'Baseblock FW time:', self._baseblock_fw_time)
+    self.log.debug("%s %s", 'With FW offload overhead time:',
+      self._baseblock_fw_offload_overhead)
     self.log.debug("%s %s", 'Edgeblock FW time:', self._edgeblock_fw_time)
+    self.log.debug("%s %s", 'With FW offload overhead time:',
+      self._edgeblock_fw_offload_overhead)
     self.log.debug("%s %s", 'Block REcomm time:', block_recomm_time)
     self.log.debug("%s %s", 'Block RE time:', self._block_re_time)
     self.log.debug("%s %s", 'Block BW time:', self._block_bw_time)
     self.log.debug("%s %s", 'Baseblock BW time:', self._baseblock_bw_time)
+    self.log.debug("%s %s", 'With BW offload overhead time:',
+      self._baseblock_bw_offload_overhead)
     self.log.debug("%s %s", 'Edgeblock BW time:', self._edgeblock_bw_time)
+    self.log.debug("%s %s", 'With BW offload overhead time:',
+      self._edgeblock_bw_offload_overhead)
 
     # Determines how long it takes to perform the DP per block
     # This assumes no DP communication overlap (will be adjusted later).
@@ -1153,8 +1165,8 @@ class Megatron:
         # In case of 1F1B schedule, num_microbatches == pipeline_par
         overlap_window = self.exe.pipeline_par * chunk_bw_time
         chunk_dp_time = self._blocks_per_chunk * self._block_dp_time
-        # We mayy have PP and DP comm colliding if DP comm takes longer than
-        # a single chunk BW time. We can't collide more PP than microbattches
+        # We may have PP and DP comm colliding if DP comm takes longer than
+        # a single chunk BW time. We can't collide more PP than microbatches
         if self.exe._num_microbatches % self.exe.pipeline_par != 0:
           num_overlapped_pp = min(
             chunk_dp_time // chunk_bw_time,
@@ -1168,8 +1180,13 @@ class Megatron:
             overlap_window)
         # in the last chunk, we overlap DP comm over last edge block and all
         # middle blocks, so we substract the time of the first edge block
-        last_chunk_bw_time = chunk_bw_time - chunk_bw_pp_time - (
-          self._baseblock_bw_time + self._edgeblock_bw_time) / 2
+        if self._baseblocks_per_chunk > 0:
+          last_chunk_bw_time = chunk_bw_time - chunk_bw_pp_time - (
+            self._baseblock_bw_time + self._edgeblock_bw_time) / 2
+        else:
+          # if there is no base blocks, we only have a single edge block
+          # and last chunk is completely not overlappable
+          last_chunk_bw_time = 0
         last_chunk_exposed_time = max(0, (
           last_chunk_overlap_size * self._block_dp_time - last_chunk_bw_time))
         exposed_time = \
