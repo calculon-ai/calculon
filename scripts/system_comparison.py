@@ -39,7 +39,10 @@ def main(args):
     else:
       max_batch_size = args.batch_mode
 
-    if not os.path.isfile(stats):
+    if args.csvonly and not os.path.isfile(stats):
+      print(f'{stats} does not exist')
+      sys.exit(-1)
+    elif not os.path.isfile(stats):
       print(f'Running {name}')
       cmd = (f'PYTHONPATH=. ./bin/calculon megatron-optimal-execution '
              f'{args.application} {nodes} {max_batch_size} {config} '
@@ -111,10 +114,17 @@ def main(args):
 
 if __name__ == '__main__':
   ap = argparse.ArgumentParser()
-  ap.add_argument('application', type=str, help='Application configuration')
-  ap.add_argument('configs', type=str, help='Path to configs.json')
-  ap.add_argument('batch_mode', type=int, help='0 for num_procs, >0 for max')
-  ap.add_argument('directory', type=str, help='Output directory')
-  ap.add_argument('-v', '--verbose', action='store_true', help='Verbose output')
+  ap.add_argument('application', type=str,
+                  help='Application configuration')
+  ap.add_argument('configs', type=str,
+                  help='Path to configs.json')
+  ap.add_argument('batch_mode', type=int,
+                  help='0 for num_procs, >0 for max')
+  ap.add_argument('directory', type=str,
+                  help='Output directory')
+  ap.add_argument('-v', '--verbose', action='store_true',
+                  help='Verbose output')
+  ap.add_argument('-c', '--csvonly', action='store_true',
+                  help='Only create CSVs')
   args = ap.parse_args()
   main(args)
