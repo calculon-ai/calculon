@@ -1,7 +1,9 @@
 {
   "name": "Megatron-175B",
   "hidden": 12288,
+  "feedforward": 49152,
   "seq_size": 2048,
   "attn_heads": 96,
+  "attn_size": 128,
   "num_blocks": 96
 }

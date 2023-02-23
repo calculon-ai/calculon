@@ -41,17 +41,22 @@ class Megatron:
       self.cfg = cfg
       self.name = cfg['name']
       self.hidden = cfg['hidden']
+      self.feedforward = cfg['feedforward']
       self.seq_size = cfg['seq_size']
       self.attn_heads = cfg['attn_heads']
+      self.attn_size = cfg['attn_size']
       self.num_blocks = cfg['num_blocks']
 
     def num_parameters(self):
       # https://cs.stanford.edu/~matei/papers/2021/sc_megatron_lm.pdf
       # Equation 2
-      p = 1
-      p += 13 / (12.0 * self.hidden)
-      p += (51200 + self.seq_size) / (12 * self.num_blocks * self.hidden)
-      p *= (12 * self.num_blocks * self.hidden**2)
+      p = 2 * self.hidden * self.feedforward            # MLP weights
+      p += 4 * self.hidden * attn_heads * attn_size     # Attn weights
+      p += self.hidden + self.feedforward               # biases MLP
+      p += 3 * attn_heads * attn_size + self.hidden     # biases Attn
+      p += 2 * 2 * self.hidden                          # layer norm
+      p *= self.num_blocks                              # per each block
+      p += (51200 + self.seq_size) * self.hidden        # embeddings
       return p
 
   class Execution:
@@ -411,13 +416,12 @@ class Megatron:
     assert self.app.hidden % self.exe.tensor_par == 0, (
       f"We should split hidden={self.app.hidden} between"
       f" {self.exe.tensor_par} TP partitions evenly")
+    assert self.app.feedforward % self.exe.tensor_par == 0, (
+      f"We should split feedforward={self.app.feedforward} between"
+      f" {self.exe.tensor_par} TP partitions evenly")
     assert self.app.attn_heads % self.exe.tensor_par == 0, (
       f"We should split {self.app.attn_heads} attn_heads between"
       f" {self.exe.tensor_par} TP partitions evenly")
-    if self.exe._sequence_par:
-      assert self.app.hidden % self.app.attn_heads == 0, (
-        f"We should split hidden={self.app.hidden} between"
-        f" {self.app.attn_heads} attn_heads evenly")
 
     self._megatron_block.append(Fork(
       "AttnBlock_Fork",
@@ -455,28 +459,28 @@ class Megatron:
       "AttnBlock_Key",
       self._batch_seq,
       self.app.hidden,
-      self.app.hidden // self.exe.tensor_par,
+      self.app.attn_heads * self.app.attn_size // self.exe.tensor_par,
       needs_recompute=recompute_flag,
       activation_not_stored=True))
     self._megatron_block.append(Linear(
       "AttnBlock_Query",
       self._batch_seq,
       self.app.hidden,
-      self.app.hidden // self.exe.tensor_par,
+      self.app.attn_heads * self.app.attn_size // self.exe.tensor_par,
       needs_recompute=recompute_flag,
       activation_not_stored=True))
     self._megatron_block.append(Linear(
       "AttnBlock_Value",
       self._batch_seq,
       self.app.hidden,
-      self.app.hidden // self.exe.tensor_par,
+      self.app.attn_heads * self.app.attn_size // self.exe.tensor_par,
       needs_recompute=recompute_flag,
       activation_not_stored=True))
     self._megatron_block.append(BatchMatMul(
       "AttnBlock_Multihead_Key_Query",
       self.exe.microbatch_size * self.app.attn_heads // self.exe.tensor_par,
       self.app.seq_size,
-      self.app.hidden // self.app.attn_heads,
+      self.app.attn_size,
       self.app.seq_size,
       needs_recompute=recompute_attn_flag))
     self._megatron_block.append(SoftMax(
@@ -494,12 +498,12 @@ class Megatron:
       self.exe.microbatch_size * self.app.attn_heads // self.exe.tensor_par,
       self.app.seq_size,
       self.app.seq_size,
-      self.app.hidden // self.app.attn_heads,
+      self.app.attn_heads * self.app.attn_size // self.app.attn_heads,
       needs_recompute=recompute_attn_flag))
     self._megatron_block.append(Linear(
       "AttnBlock_MLP",
       self._batch_seq,
-      self.app.hidden // self.exe.tensor_par,
+      self.app.attn_heads * self.app.attn_size // self.exe.tensor_par,
       self.app.hidden,
       needs_recompute=recompute_flag))
     self._megatron_block.append(TPComm(
@@ -563,16 +567,16 @@ class Megatron:
       "MlpBlock_Mlp1",
       self._batch_seq,
       self.app.hidden,
-      self.app.hidden * 4 // self.exe.tensor_par,
+      self.app.feedforward // self.exe.tensor_par,
       needs_recompute=recompute_flag))
     self._megatron_block.append(GeLU(
       "MlpBlock_GeLU",
-      4 * self._activation_size // self.exe.tensor_par,
+      self.app.feedforward * self._batch_seq // self.exe.tensor_par,
       needs_recompute=recompute_flag))
     self._megatron_block.append(Linear(
       "MlpBlock_Mlp2",
       self._batch_seq,
-      self.app.hidden * 4 // self.exe.tensor_par,
+      self.app.feedforward // self.exe.tensor_par,
       self.app.hidden,
       needs_recompute=recompute_flag))
     self._megatron_block.append(TPComm(
@@ -1603,7 +1607,9 @@ class Megatron:
     stats = "=" * 80 + "\n"
     stats += "" \
       f"Model {self.app.name}: {self.app.num_blocks} blocks, " \
-      f"hidden={self.app.hidden}, num attn heads: {self.app.attn_heads}\n" \
+      f"hidden={self.app.hidden}, feedforward={self.app.feedforward}\n" \
+      f"num attn heads: {self.app.attn_heads}, " \
+      f"attn_size={self.app.attn_size}\n" \
       f"Run on {self.exe.num_procs} processors with:\n" \
       f"TP={self.exe.tensor_par}\n" \
       f"PP={self.exe.pipeline_par}\n" \
