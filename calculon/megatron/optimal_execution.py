@@ -143,6 +143,8 @@ class OptimalExecution(calculon.CommandLine):
                     help='File path to raw TP/PP output')
     sp.add_argument('-c', '--cpus', type=int, default=os.cpu_count(),
                     help='CPUs to use for parallelization')
+    sp.add_argument('-z', '--zerosok', action='store_true',
+                    help='Don\'t give failure status when no execution exists')
 
   @staticmethod
   def run_command(logger, args):
@@ -193,8 +195,12 @@ class OptimalExecution(calculon.CommandLine):
     logger.info(f'Calculation rate: {calc_rate:.2f} calcs/sec')
     if not args.debug:
       if not best_rate:
-        logger.fatal('No acceptable configurations found :(')
-        return -1
+        if not args.zerosok:
+          logger.fatal('No acceptable configurations found :(')
+          return -1
+        else:
+          logger.info('No acceptable configurations found :(')
+          return 0
       else:
         logger.info(f'Best sample rate: {best_rate}')
       if args.execution:
