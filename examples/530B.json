@@ -1,7 +1,9 @@
 {
   "name": "Megatron-530B",
   "hidden": 20480,
+  "feedforward": 81920,
   "seq_size": 2048,
   "attn_heads": 128,
+  "attn_size": 160,
   "num_blocks": 105
 }

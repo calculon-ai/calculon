@@ -1,7 +1,9 @@
 {
   "name": "Megatron-13B",
   "hidden": 5120,
+  "feedforward": 20480,
   "seq_size": 2048,
-  "attn_heads": 48,
+  "attn_heads": 40,
+  "attn_size": 128,
   "num_blocks": 40
 }
