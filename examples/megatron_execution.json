@@ -13,6 +13,7 @@
   "pipeline_interleaving": 1,
   "optimizer_sharding": true,
   "tensor_par_comm_type": "rs_ag",
+  "tensor_par_overlap": "bw",
   "seq_par_ag_redo": false,
   "data_par_overlap": false,
   "weight_offload": false,

@@ -102,6 +102,13 @@ class Megatron:
       self.tensor_par_comm_type = cfg['tensor_par_comm_type']
       self.in_network_reduction = False
       assert self.tensor_par_comm_type in ['ar', 'p2p_rs_ag', 'rs_ag']
+      self.tensor_par_overlap = cfg['tensor_par_overlap']
+      assert self.tensor_par_overlap in ['bw', 'none']
+      if self.tensor_par_overlap != 'none':
+        assert self.tensor_par > 1, "We perform TP comm overlap with TP > 1"
+      if self.tensor_par_overlap == 'bw':
+        assert self.training, \
+          "We only perform BW TP comm overlap during training"
       self._sequence_par = self.tensor_par_comm_type == 'rs_ag'
       self.seq_par_ag_redo = cfg['seq_par_ag_redo']
       if self.seq_par_ag_redo:
@@ -1027,13 +1034,23 @@ class Megatron:
       baseblock_bw_tp_time = 0
       edgeblock_bw_tp_time = 0
 
+    # We can overlap TP comm with opotimizer during BW pass
+    if self.exe.tensor_par_overlap == 'bw':
+      baseblock_bw_tp_time_exposed = max(0,
+        baseblock_bw_tp_time - self._block_optim_time)
+      edgeblock_bw_tp_time_exposed = max(0,
+        edgeblock_bw_tp_time - self._block_optim_time)
+    else:
+      baseblock_bw_tp_time_exposed = baseblock_bw_tp_time
+      edgeblock_bw_tp_time_exposed = edgeblock_bw_tp_time
+
     # These TP numbers are for total times for all blocks in all chunks
     tp_fw_comm_time = self.exe._num_microbatches * self._chunks_per_proc * (
       (self._baseblocks_per_chunk * baseblock_fw_tp_time) +
       (self._edgeblocks_per_chunk * edgeblock_fw_tp_time))
     tp_bw_comm_time = self.exe._num_microbatches * self._chunks_per_proc * (
-      (self._baseblocks_per_chunk * baseblock_bw_tp_time) +
-      (self._edgeblocks_per_chunk * edgeblock_bw_tp_time))
+      (self._baseblocks_per_chunk * baseblock_bw_tp_time_exposed) +
+      (self._edgeblocks_per_chunk * edgeblock_bw_tp_time_exposed))
     tp_recomm_time = self.exe._num_microbatches * self._chunks_per_proc * (
       self._blocks_per_chunk * block_recomm_time)
 
@@ -1069,6 +1086,10 @@ class Megatron:
     self.log.debug("%s %s", 'TP comm FW time:', tp_fw_comm_time)
     self.log.debug("%s %s", 'TP comm baseblock BW time:', baseblock_bw_tp_time)
     self.log.debug("%s %s", 'TP comm edgeblock BW time:', edgeblock_bw_tp_time)
+    self.log.debug("%s %s", 'TP comm baseblock BW time exposed:',
+      baseblock_bw_tp_time_exposed)
+    self.log.debug("%s %s", 'TP comm edgeblock BW time exposed:',
+      edgeblock_bw_tp_time_exposed)
     self.log.debug("%s %s", 'PP comm chunk FW time:', chunk_fw_pp_time)
     self.log.debug("%s %s", 'PP comm chunk BW time:', chunk_bw_pp_time)
     self.log.debug("%s %s", 'TP comm BW time:', tp_bw_comm_time)
@@ -1097,11 +1118,12 @@ class Megatron:
     # When we consider block BW time, we add optimizer step to it
     self._baseblock_bw_time_no_offload = (
       self._block_re_time + block_recomm_time +
-      self._block_bw_time + self._block_optim_time + baseblock_bw_tp_time)
+      self._block_bw_time + self._block_optim_time +
+      baseblock_bw_tp_time_exposed)
     self._edgeblock_bw_time_no_offload = (
       self._block_re_time + block_recomm_time +
-      self._block_bw_time + self._block_optim_time + \
-      edgeblock_bw_tp_time + chunk_bw_pp_time)
+      self._block_bw_time + self._block_optim_time +
+      edgeblock_bw_tp_time_exposed + chunk_bw_pp_time)
     self._baseblock_bw_offload_overhead = max(
       0, self.get_bw_offload_time() + self._block_bw_mem_time + \
       self._block_optim_mem_time - self._baseblock_bw_time_no_offload)
