@@ -143,8 +143,8 @@ class OptimalExecution(calculon.CommandLine):
                     help='File path to raw TP/PP output')
     sp.add_argument('-c', '--cpus', type=int, default=os.cpu_count(),
                     help='CPUs to use for parallelization')
-    sp.add_argument('-z', '--zerosok', action='store_true',
-                    help='Don\'t give failure status when no execution exists')
+    sp.add_argument('-n', '--noneok', action='store_true',
+                    help='Don\'t give failure status when no good execution exists')
 
   @staticmethod
   def run_command(logger, args):
@@ -194,26 +194,26 @@ class OptimalExecution(calculon.CommandLine):
     calc_rate = exe_count / (end_time - start_time).total_seconds()
     logger.info(f'Calculation rate: {calc_rate:.2f} calcs/sec')
     if not args.debug:
-      if not best_rate:
-        if not args.zerosok:
+      none_found = not best_rate
+      if none_found:
+        if not args.noneok:
           logger.fatal('No acceptable configurations found :(')
           return -1
         else:
           logger.info('No acceptable configurations found :(')
-          return 0
       else:
         logger.info(f'Best sample rate: {best_rate}')
       if args.execution:
         with open(args.execution, 'w') as fd:
-          json.dump(best_exe, fd, indent=2)
+          json.dump({} if none_found else best_exe, fd, indent=2)
         logger.info(f'Best execution: {args.execution}')
       if args.stats:
         with open(args.stats, 'w') as fd:
-          json.dump(best_stats, fd, indent=2)
+          json.dump({} if none_found else best_stats, fd, indent=2)
         logger.info(f'Best stats: {args.stats}')
       if args.raw:
         with open(args.raw, 'w') as fd:
-          json.dump(data, fd, indent=2, allow_nan=True)
+          json.dump({} if none_found else data, fd, indent=2, allow_nan=True)
         logger.info(f'Raw TP/PP: {args.raw}')
 
     return 0
