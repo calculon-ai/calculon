@@ -60,6 +60,9 @@ class Layer:
       'bw_flops': self.get_bw_flops(),
       'bw_mem_accessed': self.get_bw_mem_accessed(),
       'bw_arithmetic_intensity': self.get_bw_arithmetic_intensity(),
+      'optim_flops': self.get_optim_step_flops(),
+      'optim_mem_accessed': self.get_optim_step_mem_accessed(),
+      'optim_arithmetic_intensity': self.get_optim_step_arithmetic_intensity(),
       'weight': self.get_weight(),
       'activation': self.get_activation(),
       'weight_grad': self.get_weight_grad(),
@@ -77,6 +80,11 @@ class Layer:
       human_format(self.get_bw_flops(), 'flops'),
       human_format(self.get_bw_mem_accessed(), 'bytes'))
     stats += " BW AI: {0:.3f}\n".format(self.get_bw_arithmetic_intensity())
+    stats += "{0} Optim flops, {1} Optim bytes accessed,".format(
+      human_format(self.get_optim_step_flops(), 'flops'),
+      human_format(self.get_optim_step_mem_accessed(), 'bytes'))
+    stats += " Optim AI: {0:.3f}\n".format(
+      self.get_optim_step_arithmetic_intensity())
     stats += "W: {0}, Act: {1}, WGrad: {2}, AGrad: {3}, Optim: {4}".format(
       human_format(self.get_weight(), 'bytes'),
       human_format(self.get_activation(), 'bytes'),
@@ -111,12 +119,8 @@ class Layer:
   def get_recompute_flag(self):
     return self.needs_recompute
 
-  # We add optimizer (Adam) computation to BW grads. The amount of flops is
-  # based on number of weight grads to accommodate for possible weight_grad
-  # sharding among data parallel nodes
   def get_bw_flops(self):
-    optim_flops = self.weight_grads / self.optim_sharding_num_proc * 11
-    return self.bw_flops + optim_flops
+    return self.bw_flops
 
   def get_bw_mem_accessed(self):
     fw_mem = self.get_fw_mem_accessed()
@@ -124,8 +128,7 @@ class Layer:
     # layer output; activation grads, computed grads are equal to input size
     grad_mem = self.weight_grads + self.activation_grads + self.inputs_size
     grad_mem *= self.bytes_per_element
-    # cover mem access for optimizer step and grad update separately
-    return fw_mem + grad_mem + self.get_optimizer() + self.get_weight_grad()
+    return fw_mem + grad_mem
 
   def get_bw_arithmetic_intensity(self):
     if self.bw_flops == 0:
@@ -133,6 +136,23 @@ class Layer:
     if self.get_bw_mem_accessed() == 0:
       return float('inf')
     return self.bw_flops / self.get_bw_mem_accessed()
+
+  # We use Adam optimizer. The amount of flops is based on the number of 
+  # weight grads to accommodate for possible weight_grad sharding 
+  # among data parallel nodes
+  def get_optim_step_flops(self):
+    optim_flops = self.weight_grads / self.optim_sharding_num_proc * 11
+    return optim_flops
+
+  def get_optim_step_mem_accessed(self):
+    return self.get_optimizer()
+
+  def get_optim_step_arithmetic_inetnsity(self):
+    if self.get_optim_step_flops() == 0:
+      return 0
+    if self.get_optim_step_mem_accessed() == 0:
+      return float('inf')
+    return self.get_optim_step_flops() / self.get_optim_step_mem_accessed()
 
   def get_weight(self):
     return self.weight_space * self.bytes_per_element
