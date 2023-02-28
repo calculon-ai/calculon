@@ -1,0 +1,9 @@
+{
+  "name": "Anthropic-52B",
+  "hidden": 8192,
+  "feedforward": 32768,
+  "seq_size": 8192,
+  "attn_heads": 64,
+  "attn_size": 128,
+  "num_blocks": 64
+}

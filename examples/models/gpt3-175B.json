@@ -1,5 +1,5 @@
 {
-  "name": "Megatron-175B",
+  "name": "GPT3-175B",
   "hidden": 12288,
   "feedforward": 49152,
   "seq_size": 2048,

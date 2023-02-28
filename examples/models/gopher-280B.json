@@ -1,0 +1,9 @@
+{
+  "name": "Gopher-280B",
+  "hidden": 16384,
+  "feedforward": 65536,
+  "seq_size": 2048,
+  "attn_heads": 128,
+  "attn_size": 128,
+  "num_blocks": 80
+}

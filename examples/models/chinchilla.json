@@ -1,0 +1,9 @@
+{
+  "name": "Chinchilla",
+  "hidden": 8192,
+  "feedforward": 32768,
+  "seq_size": 2048,
+  "attn_heads": 64,
+  "attn_size": 128,
+  "num_blocks": 80
+}
