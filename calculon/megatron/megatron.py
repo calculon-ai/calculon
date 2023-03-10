@@ -50,13 +50,13 @@ class Megatron:
     def num_parameters(self):
       # https://cs.stanford.edu/~matei/papers/2021/sc_megatron_lm.pdf
       # Equation 2
-      p = 2 * self.hidden * self.feedforward            # MLP weights
-      p += 4 * self.hidden * attn_heads * attn_size     # Attn weights
-      p += self.hidden + self.feedforward               # biases MLP
-      p += 3 * attn_heads * attn_size + self.hidden     # biases Attn
-      p += 2 * 2 * self.hidden                          # layer norm
-      p *= self.num_blocks                              # per each block
-      p += (51200 + self.seq_size) * self.hidden        # embeddings
+      p = 2 * self.hidden * self.feedforward                   # MLP weights
+      p += 4 * self.hidden * self.attn_heads * self.attn_size  # Attn weights
+      p += self.hidden + self.feedforward                      # biases MLP
+      p += 3 * self.attn_heads * self.attn_size + self.hidden  # biases Attn
+      p += 2 * 2 * self.hidden                                 # layer norm
+      p *= self.num_blocks                                     # per each block
+      p += (51200 + self.seq_size) * self.hidden               # embeddings
       return p
 
   class Execution:
@@ -1094,7 +1094,7 @@ class Megatron:
       self._baseblock_fw_time_no_offload + self._baseblock_fw_offload_overhead)
     self._edgeblock_fw_time = (
       self._edgeblock_fw_time_no_offload + self._edgeblock_fw_offload_overhead)
-    # When we consider block BW time, we add optimizer step to it 
+    # When we consider block BW time, we add optimizer step to it
     self._baseblock_bw_time_no_offload = (
       self._block_re_time + block_recomm_time +
       self._block_bw_time + self._block_optim_time + baseblock_bw_tp_time)
