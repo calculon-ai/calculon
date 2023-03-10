@@ -137,8 +137,8 @@ class Layer:
       return float('inf')
     return self.bw_flops / self.get_bw_mem_accessed()
 
-  # We use Adam optimizer. The amount of flops is based on the number of 
-  # weight grads to accommodate for possible weight_grad sharding 
+  # We use Adam optimizer. The amount of flops is based on the number of
+  # weight grads to accommodate for possible weight_grad sharding
   # among data parallel nodes
   def get_optim_step_flops(self):
     optim_flops = self.weight_grads / self.optim_sharding_num_proc * 11
@@ -147,7 +147,7 @@ class Layer:
   def get_optim_step_mem_accessed(self):
     return self.get_optimizer()
 
-  def get_optim_step_arithmetic_inetnsity(self):
+  def get_optim_step_arithmetic_intensity(self):
     if self.get_optim_step_flops() == 0:
       return 0
     if self.get_optim_step_mem_accessed() == 0:
