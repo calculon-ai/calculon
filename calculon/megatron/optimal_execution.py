@@ -83,6 +83,7 @@ def search(debug, num_procs, max_batch_size, app, syst, tp, pp):
                               'microbatch_size': microbatch_size,
                               'datatype': 'bfloat16',
                               'fused_activation': True,
+                              'attention_type': 'multihead',
                               'activation_recompute': activation_recompute,
                               'pipeline_interleaving': ppint,
                               'optimizer_sharding': optimizer_sharding,

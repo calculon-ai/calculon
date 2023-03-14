@@ -86,6 +86,8 @@ class Megatron:
       self._num_microbatches = self._local_batch_size // self.microbatch_size
       self.datatype = cfg['datatype']
       self.fused_activation = cfg['fused_activation']
+      self.attention_type = cfg['attention_type']
+      assert self.attention_type in ['multihead', 'multiquery']
       self.activation_recompute = cfg['activation_recompute']
       assert self.activation_recompute in ['full', 'attn_only', 'none']
       if self.activation_recompute in ['full', 'attn_only']:
@@ -472,26 +474,46 @@ class Megatron:
       3,
       needs_recompute=recompute_flag))
     self._megatron_block.append(Linear(
-      "AttnBlock_Key",
-      self._batch_seq,
-      self.app.hidden,
-      self.app.attn_heads * self.app.attn_size // self.exe.tensor_par,
-      needs_recompute=recompute_flag,
-      activation_not_stored=True))
-    self._megatron_block.append(Linear(
       "AttnBlock_Query",
       self._batch_seq,
       self.app.hidden,
       self.app.attn_heads * self.app.attn_size // self.exe.tensor_par,
       needs_recompute=recompute_flag,
       activation_not_stored=True))
-    self._megatron_block.append(Linear(
-      "AttnBlock_Value",
-      self._batch_seq,
-      self.app.hidden,
-      self.app.attn_heads * self.app.attn_size // self.exe.tensor_par,
-      needs_recompute=recompute_flag,
-      activation_not_stored=True))
+    if self.exe.attention_type == 'multihead':
+      self._megatron_block.append(Linear(
+        "AttnBlock_Key",
+        self._batch_seq,
+        self.app.hidden,
+        self.app.attn_heads * self.app.attn_size // self.exe.tensor_par,
+        needs_recompute=recompute_flag,
+        activation_not_stored=True))
+      self._megatron_block.append(Linear(
+        "AttnBlock_Value",
+        self._batch_seq,
+        self.app.hidden,
+        self.app.attn_heads * self.app.attn_size // self.exe.tensor_par,
+        needs_recompute=recompute_flag,
+        activation_not_stored=True))
+    elif self.exe.attention_type == 'multiquery':
+      # Multiqueri attention uses the same K, V for all "heads" resulting in
+      # smaller Wk and Wv, less matmul, faster inference
+      self._megatron_block.append(Linear(
+        "AttnBlock_Key",
+        self._batch_seq,
+        self.app.hidden,
+        self.app.attn_size,
+        needs_recompute=recompute_flag,
+        activation_not_stored=True))
+      self._megatron_block.append(Linear(
+        "AttnBlock_Value",
+        self._batch_seq,
+        self.app.hidden,
+        self.app.attn_size,
+        needs_recompute=recompute_flag,
+        activation_not_stored=True))
+    else:
+      raise self.Error('Wrong attention type', self.exe.attention_type)
     self._megatron_block.append(BatchMatMul(
       "AttnBlock_Multihead_Key_Query",
       self.exe.microbatch_size * self.app.attn_heads // self.exe.tensor_par,
