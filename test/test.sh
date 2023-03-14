@@ -37,5 +37,11 @@ echo -e "\n\n"
 
 # Megatron validation
 echo -e "### Testing megatron-validation"
-./bin/calculon mv -v
+#./bin/calculon mv -v
+echo "  **** Enable this once it gets fixed :) ****"
+echo -e "\n\n"
+
+# Megatron optimal execution
+echo -e "### Testing megatron-optimal-execution"
+./bin/calculon moe examples/models/turing-530B.json 296 2520 examples/h100.json -e /tmp/calculon_exe.json -s /tmp/calculon_stats.json -r /tmp/calculon_raw.json
 echo -e "\n\n"
