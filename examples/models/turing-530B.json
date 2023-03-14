@@ -1,5 +1,4 @@
 {
-  "name": "Megatron-Turing-NLG-530B",
   "hidden": 20480,
   "feedforward": 81920,
   "seq_size": 2048,

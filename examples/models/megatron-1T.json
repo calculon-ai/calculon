@@ -1,5 +1,4 @@
 {
-  "name": "Megatron-1T",
   "hidden": 25600,
   "feedforward": 102400,
   "seq_size": 2048,

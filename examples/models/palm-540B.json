@@ -1,5 +1,4 @@
 {
-  "name": "PaLM-540B",
   "hidden": 18432,
   "feedforward": 73728,
   "seq_size": 2048,

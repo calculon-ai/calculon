@@ -1,9 +1,0 @@
-{
-  "name": "Megatron-22B",
-  "hidden": 6144,
-  "feedforward": 24576,
-  "seq_size": 2048,
-  "attn_heads": 64,
-  "attn_size": 96,
-  "num_blocks": 48
-}

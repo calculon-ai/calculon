@@ -1,5 +1,4 @@
 {
-  "name": "GPT3-13B",
   "hidden": 5140,
   "feedforward": 20560,
   "seq_size": 2048,

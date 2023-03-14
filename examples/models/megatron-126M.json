@@ -1,5 +1,4 @@
 {
-  "name": "Megatron-126M",
   "hidden": 768,
   "feedforward": 3072,
   "seq_size": 2048,

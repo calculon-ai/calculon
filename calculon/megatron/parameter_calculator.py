@@ -16,6 +16,7 @@
 """
 
 import json
+import os
 
 import calculon
 from calculon.megatron import *
@@ -46,8 +47,10 @@ class ParameterCalculator(calculon.CommandLine):
       print(f'ERROR: {error}')
       return -1
 
-    logger.info(f'{app.name}'
-                f'{" " * (args.alignment - len(app.name))}'
+    app_name, _ = os.path.splitext(os.path.basename(args.application))
+
+    logger.info(f'{app_name}'
+                f'{" " * (args.alignment - len(app_name))}'
                 ' -> '
                 f'{human_format(app.num_parameters())}')
 

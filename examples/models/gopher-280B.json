@@ -1,5 +1,4 @@
 {
-  "name": "Gopher-280B",
   "hidden": 16384,
   "feedforward": 65536,
   "seq_size": 2048,

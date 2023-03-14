@@ -39,7 +39,6 @@ class Megatron:
     """Specifies the application configuration."""
     def __init__(self, cfg):
       self.cfg = cfg
-      self.name = cfg['name']
       self.hidden = cfg['hidden']
       self.feedforward = cfg['feedforward']
       self.seq_size = cfg['seq_size']
@@ -1668,7 +1667,7 @@ class Megatron:
   def display_stats(self):
     stats = "=" * 80 + "\n"
     stats += "" \
-      f"Model {self.app.name}: {self.app.num_blocks} blocks, " \
+      f"blocks={self.app.num_blocks}, " \
       f"hidden={self.app.hidden}, feedforward={self.app.feedforward}\n" \
       f"num attn heads: {self.app.attn_heads}, " \
       f"attn_size={self.app.attn_size}\n" \
