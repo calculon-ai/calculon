@@ -85,6 +85,7 @@ class Megatron:
       assert self._local_batch_size % self.microbatch_size == 0
       self._num_microbatches = self._local_batch_size // self.microbatch_size
       self.datatype = cfg['datatype']
+      self.fused_activation = cfg['fused_activation']
       self.activation_recompute = cfg['activation_recompute']
       assert self.activation_recompute in ['full', 'attn_only', 'none']
       if self.activation_recompute in ['full', 'attn_only']:
@@ -587,7 +588,8 @@ class Megatron:
     self._megatron_block.append(GeLU(
       "MlpBlock_GeLU",
       self.app.feedforward * self._batch_seq // self.exe.tensor_par,
-      needs_recompute=recompute_flag))
+      needs_recompute=recompute_flag,
+      fused=self.exe.fused_activation))
     self._megatron_block.append(Linear(
       "MlpBlock_Mlp2",
       self._batch_seq,

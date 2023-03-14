@@ -9,6 +9,7 @@
   "batch_size": 3072,
   "microbatch_size": 4,
   "datatype": "bfloat16",
+  "fused_activation": true,
   "activation_recompute": "full",
   "pipeline_interleaving": 1,
   "optimizer_sharding": true,

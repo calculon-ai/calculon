@@ -286,10 +286,21 @@ class DropOut(Layer):
 # https://mlfromscratch.com/activation-functions-explained/#/
 class GeLU(Layer):
   def __init__(self, name, act_size,
-               needs_recompute=False, activation_not_stored=False):
+               needs_recompute=False, activation_not_stored=False,
+               fused=False):
+    # Fused GeLU runs right after previous Linear layer and does not store
+    # activations or gradients
+    self._fused = fused
+    if fused:
+      eff_act_space = 0
+      eff_act_grads = 0
+    else:
+      eff_act_space = act_size
+      eff_act_grads = act_size
     super().__init__(name, fw_flops=8*act_size, bw_flops=13*act_size,
                      inputs_size=act_size, output_size=act_size,
-                     activation_space=act_size, activation_grads=act_size,
+                     activation_space=eff_act_space,
+                     activation_grads=eff_act_grads,
                      needs_recompute=needs_recompute,
                      activation_not_stored=activation_not_stored)
 
