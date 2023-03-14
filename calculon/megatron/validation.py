@@ -23,24 +23,24 @@ import calculon
 from calculon.util import pick
 from calculon.megatron import *
 
-kModels = ['22B', '175B', '530B', '1T']
+kModels = ['megatron-22B', 'gpt3-175B', 'turing-530B', 'megatron-1T']
 kModes = ['full', 'seqsel']
 # These profiled values are reported here:
 # https://arxiv.org/pdf/2205.05198.pdf
 kProfile = {
-  '22B': {
+  'megatron-22B': {
     'full': 1.42,
     'seqsel': 1.10
   },
-  '175B': {
+  'gpt3-175B': {
     'full': 18.13,
     'seqsel': 13.75
   },
-  '530B': {
+  'turing-530B': {
     'full': 49.05,
     'seqsel': 37.83
   },
-  '1T': {
+  'megatron-1T': {
     'full': 94.42,
     'seqsel': 71.49
   }
@@ -49,7 +49,7 @@ kProfile = {
 def get_files(model, mode):
   assert model in kModels
   assert mode in kModes
-  app = f'examples/{model}.json'
+  app = f'examples/models/{model}.json'
   exe = f'validation/{model}_{mode}.json'
   return app, exe
 
@@ -70,6 +70,8 @@ class Validation(calculon.CommandLine):
       Validation.NAME, aliases=Validation.ALIASES,
       help='run a validation of megatron execution')
     sp.set_defaults(func=Validation.run_command)
+    sp.add_argument('-v', '--verbose', action='store_true',
+                    help='Show verbose output while running')
 
   @staticmethod
   def run_command(logger, args):
@@ -80,6 +82,8 @@ class Validation(calculon.CommandLine):
     for model in kModels:
       data[model] = {}
       for mode in kModes:
+        if args.verbose:
+          print(f'Analyzing {model} {mode}')
         data[model][mode] = {}
         app_file, exe_file = get_files(model, mode)
         with open(app_file, 'r') as fd:

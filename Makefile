@@ -16,8 +16,10 @@ clean:
 lint:
 	pylint -r n calculon
 
-test: 
+test:
 	python3 -m unittest -v -f --buffer
+	@echo -e "Unit testing successful!\n\n"
+	./test/test.sh
 
 count:
 	@wc calculon/*.py test/*.py | sort -n -k1

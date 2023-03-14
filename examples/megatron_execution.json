@@ -1,8 +1,8 @@
 {
   "num_procs": 3072,
-  "tensor_par": 8,
+  "tensor_par": 4,
   "pipeline_par": 64,
-  "data_par": 6,
+  "data_par": 12,
   "tensor_par_net": 0,
   "pipeline_par_net": 1,
   "data_par_net": 1,
