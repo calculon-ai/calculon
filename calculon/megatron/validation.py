@@ -75,7 +75,7 @@ class Validation(calculon.CommandLine):
 
   @staticmethod
   def run_command(logger, args):
-    syst_file = f'examples/a100.json'
+    syst_file = f'examples/a100_80g.json'
     with open(syst_file, 'r') as fd:
       syst = System(json.load(fd))
     data = {}
