@@ -50,7 +50,7 @@ def get_files(model, mode):
   assert model in kModels
   assert mode in kModes
   app = f'examples/models/{model}.json'
-  exe = f'validation/{model}_{mode}.json'
+  exe = f'validation/seqsel/tab5/{model}_{mode}.json'
   return app, exe
 
 
