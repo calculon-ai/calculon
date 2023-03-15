@@ -341,7 +341,7 @@ class Validation(calculon.CommandLine):
         data[model][mode]['actual_time'] = stats["total_time"]
         data[model][mode]['memory_req'] = stats["proc_mem_tier1_cap_req"]
 
-    print(',|,full,,,,|,seqsel,,,,')
+    print('End-to-end,|,full,,,,|,seqsel,,,,')
     print('Model,|,Profile,Calc,Delta,GiB,|,Profile,Calc,Delta,GiB,')
     max_error = 0
     abs_error = 0
