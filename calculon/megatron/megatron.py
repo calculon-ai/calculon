@@ -1208,6 +1208,7 @@ class Megatron:
         self._block_dp_time = self._dp_net.time(
           'all_reduce', self._block_dp_size, self.exe.data_par)
     else:
+      self._block_dp_size = 0
       self._block_dp_time = 0
     self.log.debug('DP block comm size: %s',
                    human_format(self._block_dp_size, 'bytes'))
