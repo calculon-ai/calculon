@@ -23,42 +23,6 @@ import calculon
 from calculon.util import pick
 from calculon.megatron import *
 
-kModels = ['megatron-22B', 'gpt3-175B', 'turing-530B', 'megatron-1T']
-kModes = ['full', 'seqsel']
-# These profiled values are reported here:
-# https://arxiv.org/pdf/2205.05198.pdf
-kProfile = {
-  'megatron-22B': {
-    'full': 1.42,
-    'seqsel': 1.10
-  },
-  'gpt3-175B': {
-    'full': 18.13,
-    'seqsel': 13.75
-  },
-  'turing-530B': {
-    'full': 49.05,
-    'seqsel': 37.83
-  },
-  'megatron-1T': {
-    'full': 94.42,
-    'seqsel': 71.49
-  }
-}
-
-def get_files(model, mode):
-  assert model in kModels
-  assert mode in kModes
-  app = f'examples/models/{model}.json'
-  exe = f'validation/seqsel/tab5/{model}_{mode}.json'
-  return app, exe
-
-
-def get_profile(model, mode):
-  assert model in kModels
-  assert mode in kModes
-  return kProfile[model][mode]
-
 
 class Validation(calculon.CommandLine):
   NAME = 'megatron-validation'
@@ -75,7 +39,286 @@ class Validation(calculon.CommandLine):
 
   @staticmethod
   def run_command(logger, args):
-    syst_file = f'examples/a100_80g.json'
+    funcs = [
+      Validation.seqsel_fig1,
+      Validation.seqsel_fig7,
+      Validation.seqsel_tab5
+    ]
+    for func in funcs:
+      if args.verbose:
+        print(f'\n\nNow running test: {func.__name__}')
+      if func(logger, args) is not None:
+        return -1
+
+  @staticmethod
+  def seqsel_fig1(logger, args):
+    kModels = ['megatron-22B', 'gpt3-175B', 'turing-530B', 'megatron-1T']
+    kModes = ['none', 'seqsel']
+    # These profiled values are reported here:
+    # https://arxiv.org/pdf/2205.05198.pdf
+    # Figure 1
+    kProfile = {
+      'megatron-22B': {
+        'none': {
+          'par_opt': 45.7,
+          'act': 59.4
+        },
+        'seqsel': {
+          'par_opt': 45.7,
+          'act': 9.1
+        }
+      },
+      'gpt3-175B': {
+        'none': {
+          'par_opt': 45.7,
+          'act': 66.3
+        },
+        'seqsel': {
+          'par_opt': 45.7,
+          'act': 12.6
+        }
+      },
+      'turing-530B': {
+        'none': {
+          'par_opt': 32,
+          'act': 114.3
+        },
+        'seqsel': {
+          'par_opt': 32,
+          'act': 22.9
+        }
+      },
+      'megatron-1T': {
+        'none': {
+          'par_opt': 33.1,
+          'act': 131.4
+        },
+        'seqsel': {
+          'par_opt': 33.1,
+          'act': 26.3
+        }
+      }
+    }
+
+    def get_files(model, mode):
+      assert model in kModels
+      assert mode in kModes
+      app = f'examples/models/{model}.json'
+      exe = f'validation/seqsel/fig1/{model}_{mode}.json'
+      return app, exe
+
+    def get_profile(model, mode):
+      assert model in kModels
+      assert mode in kModes
+      return kProfile[model][mode]
+
+    syst_file = f'examples/a100_80e.json'
+    with open(syst_file, 'r') as fd:
+      syst = System(json.load(fd))
+    data = {}
+    for model in kModels:
+      data[model] = {}
+      for mode in kModes:
+        if args.verbose:
+          print(f'Analyzing {model} {mode}')
+        data[model][mode] = {}
+        app_file, exe_file = get_files(model, mode)
+        with open(app_file, 'r') as fd:
+          app = Megatron.Application(json.load(fd))
+        with open(exe_file, 'r') as fd:
+          exe = Megatron.Execution(json.load(fd))
+        mt = Megatron(app, logger)
+        mt.compile(exe)
+        mt.run(syst)
+        stats = mt.get_stats_json()
+        data[model][mode]['profile_gib'] = get_profile(model, mode)
+        act_par_opt = (stats['weight_space'] + stats['weight_grad_space'] +
+                       stats['optimizer_space']) / (1024**3)
+        act_act = stats['act_space'] / (1024**3)
+        data[model][mode]['actual_gib'] = {
+          'par_opt': act_par_opt,
+          'act': act_act
+        }
+
+    print('*Params & Opt,|,none,,,|,seqsel,,,')
+    print('Model,|,Profile,Calc,Delta,|,Profile,Calc,Delta,')
+    max_error = 0
+    abs_error = 0
+    for model in kModels:
+      print(f'{model},', end='')
+      for mode in kModes:
+        p = data[model][mode]['profile_gib']['par_opt']
+        a = data[model][mode]['actual_gib']['par_opt']
+        d = 100*(1-a/p)
+        if math.fabs(d) > max_error:
+          max_error = math.fabs(d)
+        abs_error += math.fabs(d)
+        print(f'|,{p},{a:.2f},{d:.2f}%,', end='')
+      print()
+    ave_error = abs_error / (len(kModels) * len(kModes))
+    print(f'Ave,,{ave_error:.2f}%')
+    print(f'Max,,{max_error:.2f}%')
+    print(',')
+
+    print('*Activations,|,none,,,|,seqsel,,,')
+    print('Model,|,Profile,Calc,Delta,|,Profile,Calc,Delta,')
+    max_error = 0
+    abs_error = 0
+    for model in kModels:
+      print(f'{model},', end='')
+      for mode in kModes:
+        p = data[model][mode]['profile_gib']['act']
+        a = data[model][mode]['actual_gib']['act']
+        d = 100*(1-a/p)
+        if math.fabs(d) > max_error:
+          max_error = math.fabs(d)
+        abs_error += math.fabs(d)
+        print(f'|,{p},{a:.2f},{d:.2f}%,', end='')
+      print()
+    ave_error = abs_error / (len(kModels) * len(kModes))
+    print(f'Ave,,{ave_error:.2f}%')
+    print(f'Max,,{max_error:.2f}%')
+    print(',')
+
+  @staticmethod
+  def seqsel_fig7(logger, args):
+    kModels = ['megatron-22B', 'gpt3-175B', 'turing-530B', 'megatron-1T']
+    kModes = ['none', 'seq', 'sel', 'seqsel', 'full']
+    # These profiled values are reported here:
+    # https://arxiv.org/pdf/2205.05198.pdf
+    # Figure 7
+    kProfile = {
+      'megatron-22B': {
+        'none': 100.00,
+        'seq': 66.84,
+        'sel': 49.42,
+        'seqsel': 16.18,
+        'full': 7.64
+      },
+      'gpt3-175B': {
+        'none': 100.00,
+        'seq': 62.04,
+        'sel': 56.53,
+        'seqsel': 18.49,
+        'full': 8.71
+      },
+      'turing-530B': {
+        'none': 100.00,
+        'seq': 58.31,
+        'sel': 62.04,
+        'seqsel': 20.27,
+        'full': 9.42
+      },
+      'megatron-1T': {
+        'none': 100.00,
+        'seq': 58.31,
+        'sel': 62.04,
+        'seqsel': 20.27,
+        'full': 9.42
+      }
+    }
+
+    def get_files(model, mode):
+      assert model in kModels
+      assert mode in kModes
+      app = f'examples/models/{model}.json'
+      exe = f'validation/seqsel/fig7/{model}_{mode}.json'
+      return app, exe
+
+    def get_profile(model, mode):
+      assert model in kModels
+      assert mode in kModes
+      return kProfile[model][mode]
+
+    syst_file = f'examples/a100_80e.json'
+    with open(syst_file, 'r') as fd:
+      syst = System(json.load(fd))
+    raw = {}
+    for model in kModels:
+      raw[model] = {}
+      for mode in kModes:
+        if args.verbose:
+          print(f'Analyzing {model} {mode}')
+        raw[model][mode] = {}
+        app_file, exe_file = get_files(model, mode)
+        with open(app_file, 'r') as fd:
+          app = Megatron.Application(json.load(fd))
+        with open(exe_file, 'r') as fd:
+          exe = Megatron.Execution(json.load(fd))
+        mt = Megatron(app, logger)
+        mt.compile(exe)
+        mt.run(syst)
+        stats = mt.get_stats_json()
+        raw[model][mode] = stats['act_space']
+
+    rel = {}
+    for model in kModels:
+      rel[model] = {}
+      for mode in kModes:
+        rel[model][mode] = {}
+        rel[model][mode] = raw[model][mode] / raw[model]['none'] * 100
+
+    print('Activations,|,none,,,|,seq,,,|,sel,,,|,seqsel,,,|,full,,,')
+    print('Model,|,Profile,Calc,Delta,|,Profile,Calc,Delta,|'
+          ',Profile,Calc,Delta,|,Profile,Calc,Delta,|,Profile,Calc,Delta,')
+    max_error = 0
+    abs_error = 0
+    for model in kModels:
+      print(f'{model},', end='')
+      for mode in kModes:
+        p = get_profile(model, mode)
+        a = rel[model][mode]
+        d = 100*(1-a/p)
+        if math.fabs(d) > max_error:
+          max_error = math.fabs(d)
+        abs_error += math.fabs(d)
+        print(f'|,{p}%,{a:.2f}%,{d:.2f}%,', end='')
+      print()
+    ave_error = abs_error / (len(kModels) * len(kModes))
+    print(f'Ave,,{ave_error:.2f}%')
+    print(f'Max,,{max_error:.2f}%')
+    print(',')
+
+  @staticmethod
+  def seqsel_tab5(logger, args):
+    kModels = ['megatron-22B', 'gpt3-175B', 'turing-530B', 'megatron-1T']
+    kModes = ['full', 'seqsel']
+    # These profiled values are reported here:
+    # https://arxiv.org/pdf/2205.05198.pdf
+    # Table 5
+    kProfile = {
+      'megatron-22B': {
+        'full': 1.42,
+        'seqsel': 1.10
+      },
+      'gpt3-175B': {
+        'full': 18.13,
+        'seqsel': 13.75
+      },
+      'turing-530B': {
+        'full': 49.05,
+        'seqsel': 37.83
+      },
+      'megatron-1T': {
+        'full': 94.42,
+        'seqsel': 71.49
+      }
+    }
+
+    def get_files(model, mode):
+      assert model in kModels
+      assert mode in kModes
+      app = f'examples/models/{model}.json'
+      exe = f'validation/seqsel/tab5/{model}_{mode}.json'
+      return app, exe
+
+    def get_profile(model, mode):
+      assert model in kModels
+      assert mode in kModes
+      return kProfile[model][mode]
+
+    print('Using 80E not 80G')
+    syst_file = f'examples/a100_80e.json'
     with open(syst_file, 'r') as fd:
       syst = System(json.load(fd))
     data = {}
@@ -114,11 +357,9 @@ class Validation(calculon.CommandLine):
         m = data[model][mode]['memory_req'] / (1024**3)
         print(f'|,{p},{a:.2f},{d:.2f}%,{m:.2f},', end='')
       print()
-    print(',')
     ave_error = abs_error / (len(kModels) * len(kModes))
     print(f'Ave,,{ave_error:.2f}%')
     print(f'Max,,{max_error:.2f}%')
-
-    return 0
+    print(',')
 
 calculon.CommandLine.register(Validation)
