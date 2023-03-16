@@ -163,19 +163,26 @@ class Layer:
     return self.activation_space * self.bytes_per_element
 
   def get_weight_grad(self, sharded=True):
-    grads = self.weight_grads * self.bytes_per_element
+    # Keep lower precision copy of grads for mem and net transfers
+    grads = self.weight_grads
     if sharded:
+      # We keep grads in lower precision for communication
+      grads *= self.bytes_per_element
       grads /= self.optim_sharding_num_proc
+    else:
+      # otherwise keep grads in 32 bit for accumulation
+      grads *= 4
     return grads
 
   def get_activation_grad(self):
     return self.activation_grads * self.bytes_per_element
 
   def get_optimizer(self):
+    # Keep 32-bits master copy of weights, plus both moments (m,v)
+    # master copy for grads is accounted for in get_weight_grad()
     moments_size = self.optim_space * 4
-    # Keep 32-bits master copy of weights and grads, plus both moments (m,v)
     if self.bytes_per_element < 4:
-      master_copy_size = (self.weight_grads + self.weight_space) * 4
+      master_copy_size = self.weight_space * 4
     else:
       master_copy_size = 0
     return (master_copy_size + moments_size) / self.optim_sharding_num_proc
