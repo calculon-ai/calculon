@@ -37,8 +37,7 @@ echo -e "\n\n"
 
 # Megatron validation
 echo -e "### Testing megatron-validation"
-#./bin/calculon mv -v
-echo "  **** Enable this once it gets fixed :) ****"
+./bin/calculon mv -v
 echo -e "\n\n"
 
 # Megatron optimal execution

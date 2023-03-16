@@ -1306,19 +1306,21 @@ class Megatron:
           assert self.exe.pipeline_interleaving == 1
           self._act_checkpoint_size *= self.exe.pipeline_par
       else:
-        # Without full recompute, we keep activations for all blocks on the GPU
-        self._act_space = self._block_act_working_space + (
-          (self._blocks_per_proc - 1) * self._block_act_storage_space)
         # Without full recompute, we don't need checkpoints
         self._act_checkpoint_size = 0
-        # Keep activations for all pipeline stages for PP
+        # Without full recompute, we keep activations for all blocks on the GPU,
+        # one activation for working block, and activation for other blocks for
+        # all pipeline stages w.r.t. interleaved 1F1B schedule
         if self.exe.pipeline_interleaving > 1:
-          self._act_space *= self.exe.pipeline_par * (
+          pp_microbatch_factor = self.exe.pipeline_par * (
             1 + (self.exe.pipeline_par - 1) / (self.exe.pipeline_interleaving *
                                                self.exe.pipeline_par))
         else:
           assert self.exe.pipeline_interleaving == 1
-          self._act_space *= self.exe.pipeline_par
+          pp_microbatch_factor = self.exe.pipeline_par
+        self._act_space = self._block_act_working_space + \
+          self._block_act_storage_space * (
+            self._blocks_per_proc * pp_microbatch_factor - 1)
       # Only need activation grads for a single block
       self._act_grad_space = self._block_act_grad_space
     else:

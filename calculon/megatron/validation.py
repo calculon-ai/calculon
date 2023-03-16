@@ -249,7 +249,7 @@ class Validation(calculon.CommandLine):
         mt.compile(exe)
         mt.run(syst)
         stats = mt.get_stats_json()
-        raw[model][mode] = stats['act_space']
+        raw[model][mode] = stats['act_space'] + stats['act_checkpoint_size']
 
     rel = {}
     for model in kModels:
@@ -317,8 +317,7 @@ class Validation(calculon.CommandLine):
       assert mode in kModes
       return kProfile[model][mode]
 
-    print('Using 80E not 80G')
-    syst_file = f'examples/a100_80e.json'
+    syst_file = f'examples/a100_80g.json'
     with open(syst_file, 'r') as fd:
       syst = System(json.load(fd))
     data = {}

@@ -9,7 +9,7 @@
   "batch_size": 4,
   "microbatch_size": 4,
   "datatype": "float16",
-  "fused_activation": true,
+  "fused_activation": false,
   "attention_type": "multihead",
   "activation_recompute": "none",
   "pipeline_interleaving": 1,
