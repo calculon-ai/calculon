@@ -43,42 +43,22 @@ class System:
     assert tier < len(self.networks), f'Bad network tier ID: {tier}'
     return self.networks[tier]
 
-  def compute_flops_time(self, layer, stage):
-    if stage == "fw":
-      flops = layer.get_fw_flops()
-    elif stage == "bw":
-      flops = layer.get_bw_flops()
-    elif stage == "optim":
-      flops = layer.get_optim_step_flops()
-    else:
-      raise Exception(f'Bad compute stage : {stage}') 
-    if layer.use_matrix_engine() and stage != "optim":
-      throughput = self.matrix.throughput(flops)
-    else:
-      throughput = self.vector.throughput(flops)
-    return flops / throughput
+  def get_matrix_throughput(self, flops):
+    return self.matrix.throughput(flops)
+
+  def get_vector_throughput(self, flops):
+    return self.vector.throughput(flops)
+
+  def get_mem1_throughput(self, size):
+    return self.mem1.throughput(size)
+
+  def get_mem2_throughput(self, size):
+    return self.mem2.throughput(size)
 
   def compute_offload_time(self, size):
     return size / self.mem2.throughput(size)
 
-  def compute_mem_time(self, layer, stage):
-    if stage == "fw":
-      mem = layer.get_fw_mem_accessed()
-    elif stage == "bw":
-      mem = layer.get_bw_mem_accessed()
-    elif stage == "optim":
-      mem = layer.get_optim_step_mem_accessed()
-    else:
-      raise Exception(f'Bad compute stage : {stage}') 
-    return mem / self.mem1.throughput(mem)
-
-  def compute_processing_time(self, layer, stage):
-    return self._compute_processing_time(
-      self.compute_flops_time(layer, stage),
-      self.compute_mem_time(layer, stage)
-    )
-
-  def _compute_processing_time(self, flops_time, mem_time):
+  def get_processing_time(self, flops_time, mem_time):
     if self.proc_mode == 'roofline':
       return max(flops_time, mem_time)
     elif self.proc_mode == 'no_overlap':

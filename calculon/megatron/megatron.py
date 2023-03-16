@@ -787,30 +787,30 @@ class Megatron:
     for layer in self._megatron_block:
       # Add flops/bytes/times per layer
       self._block_fw_flops += layer.get_fw_flops()
-      self._block_fw_flops_time += self.sys.compute_flops_time(layer, "fw")
+      self._block_fw_flops_time += layer.compute_flops_time(self.sys, "fw")
       self._block_fw_mem_accessed += layer.get_fw_mem_accessed()
-      self._block_fw_mem_time += self.sys.compute_mem_time(layer, "fw")
-      self._block_fw_time += self.sys.compute_processing_time(layer, "fw")
+      self._block_fw_mem_time += layer.compute_mem_time(self.sys, "fw")
+      self._block_fw_time += layer.compute_processing_time(self.sys, "fw")
       if self.exe.training:
         if layer.get_recompute_flag():
           self._block_re_flops += self._block_fw_flops
           self._block_re_flops_time += self._block_fw_flops_time
           self._block_re_mem_accessed += self._block_fw_mem_accessed
           self._block_re_mem_time += self._block_fw_mem_time
-          self._block_re_time += self.sys.compute_processing_time(layer, "fw")
+          self._block_re_time += layer.compute_processing_time(self.sys, "fw")
         self._block_bw_flops += layer.get_bw_flops()
-        self._block_bw_flops_time += self.sys.compute_flops_time(layer, "bw")
+        self._block_bw_flops_time += layer.compute_flops_time(self.sys, "bw")
         self._block_bw_mem_accessed += layer.get_bw_mem_accessed()
-        self._block_bw_mem_time += self.sys.compute_mem_time(layer, "bw")
-        self._block_bw_time += self.sys.compute_processing_time(layer, "bw")
+        self._block_bw_mem_time += layer.compute_mem_time(self.sys, "bw")
+        self._block_bw_time += layer.compute_processing_time(self.sys, "bw")
         self._block_optim_flops += layer.get_optim_step_flops()
-        self._block_optim_flops_time += self.sys.compute_flops_time(
-          layer, "optim")
+        self._block_optim_flops_time += layer.compute_flops_time(
+          self.sys, "optim")
         self._block_optim_mem_accessed += layer.get_optim_step_mem_accessed()
-        self._block_optim_mem_time += self.sys.compute_mem_time(
-          layer, "optim")
-        self._block_optim_time += self.sys.compute_processing_time(
-          layer, "optim")
+        self._block_optim_mem_time += layer.compute_mem_time(
+          self.sys, "optim")
+        self._block_optim_time += layer.compute_processing_time(
+          self.sys, "optim")
 
       # Accumulate space requirements per block
       self._block_weight_space += layer.get_weight()
@@ -836,7 +836,7 @@ class Megatron:
       self.log.debug("%s %s %s", layer.name, 'FW mem:',
                      human_format(layer.get_fw_mem_accessed(), 'bytes'))
       self.log.debug("%s %s %.3e", layer.name, 'FW time:',
-                     self.sys.compute_processing_time(layer, "fw"))
+                     layer.compute_processing_time(self.sys, "fw"))
       self.log.debug("%s %s %s", layer.name, 'BW flops:',
                      human_format(layer.get_bw_flops(), 'flops'))
       self.log.debug("%s %s %s", layer.name, 'BW num Wgrads:',
@@ -848,7 +848,7 @@ class Megatron:
       self.log.debug("%s %s %s", layer.name, 'BW mem:',
                      human_format(layer.get_bw_mem_accessed(), 'bytes'))
       self.log.debug("%s %s %.3e", layer.name, 'BW time:',
-                     self.sys.compute_processing_time(layer, "bw"))
+                     layer.compute_processing_time(self.sys, "bw"))
       self.log.debug("%s %s %s", layer.name, 'Optim flops:',
                      human_format(layer.get_optim_step_flops(), 'flops'))
       self.log.debug("%s %s %s", layer.name, 'BW Optimizer size:',
@@ -856,7 +856,7 @@ class Megatron:
       self.log.debug("%s %s %s", layer.name, 'Optim mem:',
                      human_format(layer.get_optim_step_mem_accessed(), 'bytes'))
       self.log.debug("%s %s %.3e", layer.name, 'Optim time:',
-                     self.sys.compute_processing_time(layer, "optim"))
+                     layer.compute_processing_time(self.sys, "optim"))
       self.log.debug("%s %s %.3e", layer.name, 'Recompute:',
                      layer.get_recompute_flag())
       self.log.debug("%s %s %s", layer.name, 'Recompute mem saving:',
@@ -917,7 +917,7 @@ class Megatron:
       if self.exe.activation_recompute == "full":
         self._block_recomm_size = self._block_fw_tp_size
       elif self.exe.seq_par_ag_redo:
-        # only works when recompuet is attn_only or none with seq_par
+        # only works when recompute is attn_only or none with seq_par
         self._block_recomm_size = self._block_fw_tp_size
       else:
         self._block_recomm_size = 0

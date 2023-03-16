@@ -196,6 +196,41 @@ class Layer:
   def use_matrix_engine(self):
     return False
 
+  def compute_flops_time(self, sys, stage):
+    if stage == "fw":
+      flops = self.get_fw_flops()
+    elif stage == "bw":
+      flops = self.get_bw_flops()
+    elif stage == "optim":
+      flops = self.get_optim_step_flops()
+    else:
+      raise Exception(f'Bad compute stage : {stage}') 
+    if self.use_matrix_engine() and stage != "optim":
+      throughput = sys.get_matrix_throughput(flops)
+    else:
+      throughput = sys.get_vector_throughput(flops)
+    return flops / throughput
+
+  def compute_mem_time(self, sys, stage):
+    if stage == "fw":
+      mem = self.get_fw_mem_accessed()
+    elif stage == "bw":
+      mem = self.get_bw_mem_accessed()
+    elif stage == "optim":
+      mem = self.get_optim_step_mem_accessed()
+    else:
+      raise Exception(f'Bad compute stage : {stage}') 
+    return mem / sys.get_mem1_throughput(mem)
+
+  def compute_net_time(self, sys, stage):
+    return 0
+
+  def compute_processing_time(self, sys, stage):
+    self.processing_time =  sys.get_processing_time(
+      self.compute_flops_time(sys, stage),
+      self.compute_mem_time(sys, stage)
+    )
+    return self.processing_time
 
 # We can factor all layers peculiarities and layer-wise optimizations by
 # rewriting parent class member functions when needed
