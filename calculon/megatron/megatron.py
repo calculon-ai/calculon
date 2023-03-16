@@ -1141,6 +1141,11 @@ class Megatron:
     chunk_bw_time = (
       (self._baseblocks_per_chunk * self._baseblock_bw_time) +
       (self._edgeblocks_per_chunk * self._edgeblock_bw_time))
+    chunk_dp_overlap_time = (
+      (self._baseblocks_per_chunk * (
+        self._baseblock_bw_time - self._block_optim_time)) +
+      (self._edgeblocks_per_chunk * (
+        self._edgeblock_bw_time - self._block_optim_time)))
     chunk_time = chunk_fw_time + chunk_bw_time
     # Block bubbles appear due to uneven division of blocks by pipeline stages
     # and result in the schedule bubble shorten by the missing edge blocks on
@@ -1233,10 +1238,16 @@ class Megatron:
         # in the last chunk we can overlap only all blocks except for the last
         num_overlappable_chunks = self.exe.pipeline_interleaving - 1
         last_chunk_overlap_size = self._blocks_per_chunk - 1
+        # We can overlap DP with BW pass, overlap[ing AR for previous layer
+        # with BW for current, except when optimizer sharded we can't overlap
+        # during optimizer step as we RS grads before step and AG weights after
         # Overlappable chunks have overlap size equal to
         # blocks_per_chunk * num_microbatches
         # In case of 1F1B schedule, num_microbatches == pipeline_par
-        overlap_window = self.exe.pipeline_par * chunk_bw_time
+        if self.exe.optimizer_sharding:
+          overlap_window = self.exe.pipeline_par * chunk_dp_overlap_time
+        else:
+          overlap_window = self.exe.pipeline_par * chunk_bw_time
         chunk_dp_time = self._blocks_per_chunk * self._block_dp_time
         # We may have PP and DP comm colliding if DP comm takes longer than
         # a single chunk BW time. We can't collide more PP than microbatches
@@ -1254,14 +1265,18 @@ class Megatron:
         # in the last chunk, we overlap DP comm over last edge block and all
         # middle blocks, so we substract the time of the first edge block
         if self._baseblocks_per_chunk > 0:
-          last_chunk_bw_time = chunk_bw_time - chunk_bw_pp_time - (
-            self._baseblock_bw_time + self._edgeblock_bw_time) / 2
+          if self.exe.optimizer_sharding:
+            last_chunk_window = chunk_dp_overlap_time - chunk_bw_pp_time - (
+              self._baseblock_bw_time + self._edgeblock_bw_time) / 2
+          else:
+            last_chunk_window = chunk_bw_time - chunk_bw_pp_time - (
+              self._baseblock_bw_time + self._edgeblock_bw_time) / 2
         else:
           # if there is no base blocks, we only have a single edge block
           # and last chunk is completely not overlappable
-          last_chunk_bw_time = 0
+          last_chunk_window = 0
         last_chunk_exposed_time = max(0, (
-          last_chunk_overlap_size * self._block_dp_time - last_chunk_bw_time))
+          last_chunk_overlap_size * self._block_dp_time - last_chunk_window))
         exposed_time = \
           overlappable_chunks_exposed_time + last_chunk_exposed_time
         self._dp_comm_time = self._block_dp_time + exposed_time
@@ -1278,6 +1293,7 @@ class Megatron:
       self._dp_comm_time = 0
     self.log.debug('Chunk FW time: %.3e', chunk_fw_time)
     self.log.debug('Chunk BW time: %.3e', chunk_bw_time)
+    self.log.debug('Chunk BW time for DP overlap: %.3e', chunk_dp_overlap_time)
     self.log.debug('DP comm time exposed: %.3e', self._dp_comm_time)
     self.log.debug('DP comm time on the link: %.3e',
                    self._blocks_per_proc * self._block_dp_time)
