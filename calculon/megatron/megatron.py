@@ -271,11 +271,16 @@ class Megatron:
     self._block_re_mem_accessed = None
     self._block_re_mem_time = None
     self._block_re_time = None
-    self._block_bw_flops = None
-    self._block_bw_flops_time = None
-    self._block_bw_mem_accessed = None
-    self._block_bw_mem_time = None
-    self._block_bw_time = None
+    self._block_agrad_flops = None
+    self._block_agrad_flops_time = None
+    self._block_agrad_mem_accessed = None
+    self._block_agrad_mem_time = None
+    self._block_agrad_time = None
+    self._block_wgrad_flops = None
+    self._block_wgrad_flops_time = None
+    self._block_wgrad_mem_accessed = None
+    self._block_wgrad_mem_time = None
+    self._block_wgrad_time = None
     self._block_optim_flops = None
     self._block_optim_flops_time = None
     self._block_optim_mem_accessed = None
@@ -331,11 +336,16 @@ class Megatron:
     self._re_mem_accessed = None
     self._re_mem_time = None
     self._re_time = None
-    self._bw_flops = None
-    self._bw_flops_time = None
-    self._bw_mem_accessed = None
-    self._bw_mem_time = None
-    self._bw_time = None
+    self._agrad_flops = None
+    self._agrad_flops_time = None
+    self._agrad_mem_accessed = None
+    self._agrad_mem_time = None
+    self._agrad_time = None
+    self._wgrad_flops = None
+    self._wgrad_flops_time = None
+    self._wgrad_mem_accessed = None
+    self._wgrad_mem_time = None
+    self._wgrad_time = None
     self._optim_flops = None
     self._optim_flops_time = None
     self._optim_mem_accessed = None
@@ -362,11 +372,16 @@ class Megatron:
     j['block_re_mem_accessed'] = self._block_re_mem_accessed
     j['block_re_mem_time'] = self._block_re_mem_time
     j['block_re_time'] = self._block_re_time
-    j['block_bw_flops'] = self._block_bw_flops
-    j['block_bw_flops_time'] = self._block_bw_flops_time
-    j['block_bw_mem_accessed'] = self._block_bw_mem_accessed
-    j['block_bw_mem_time'] = self._block_bw_mem_time
-    j['block_bw_time'] = self._block_bw_time
+    j['block_agrad_flops'] = self._block_agrad_flops
+    j['block_agrad_flops_time'] = self._block_agrad_flops_time
+    j['block_agrad_mem_accessed'] = self._block_agrad_mem_accessed
+    j['block_agrad_mem_time'] = self._block_agrad_mem_time
+    j['block_agrad_time'] = self._block_agrad_time
+    j['block_wgrad_flops'] = self._block_wgrad_flops
+    j['block_wgrad_flops_time'] = self._block_wgrad_flops_time
+    j['block_wgrad_mem_accessed'] = self._block_wgrad_mem_accessed
+    j['block_wgrad_mem_time'] = self._block_wgrad_mem_time
+    j['block_wgrad_time'] = self._block_wgrad_time
     j['block_optim_flops'] = self._block_optim_flops
     j['block_optim_flops_time'] = self._block_optim_flops_time
     j['block_optim_mem_accessed'] = self._block_optim_mem_accessed
@@ -768,11 +783,16 @@ class Megatron:
     self._block_re_mem_accessed = 0
     self._block_re_mem_time = 0
     self._block_re_time = 0
-    self._block_bw_flops = 0
-    self._block_bw_flops_time = 0
-    self._block_bw_mem_accessed = 0
-    self._block_bw_mem_time = 0
-    self._block_bw_time = 0
+    self._block_agrad_flops = 0
+    self._block_agrad_flops_time = 0
+    self._block_agrad_mem_accessed = 0
+    self._block_agrad_mem_time = 0
+    self._block_agrad_time = 0
+    self._block_wgrad_flops = 0
+    self._block_wgrad_flops_time = 0
+    self._block_wgrad_mem_accessed = 0
+    self._block_wgrad_mem_time = 0
+    self._block_wgrad_time = 0
     self._block_optim_flops = 0
     self._block_optim_flops_time = 0
     self._block_optim_mem_accessed = 0
@@ -798,11 +818,20 @@ class Megatron:
           self._block_re_mem_accessed += self._block_fw_mem_accessed
           self._block_re_mem_time += self._block_fw_mem_time
           self._block_re_time += layer.compute_processing_time(self.sys, "fw")
-        self._block_bw_flops += layer.get_bw_flops()
-        self._block_bw_flops_time += layer.compute_flops_time(self.sys, "bw")
-        self._block_bw_mem_accessed += layer.get_bw_mem_accessed()
-        self._block_bw_mem_time += layer.compute_mem_time(self.sys, "bw")
-        self._block_bw_time += layer.compute_processing_time(self.sys, "bw")
+        self._block_agrad_flops += layer.get_agrad_flops()
+        self._block_agrad_flops_time += layer.compute_flops_time(
+          self.sys, "agrad")
+        self._block_agrad_mem_accessed += layer.get_agrad_mem_accessed()
+        self._block_agrad_mem_time += layer.compute_mem_time(self.sys, "agrad")
+        self._block_agrad_time += layer.compute_processing_time(
+          self.sys, "agrad")
+        self._block_wgrad_flops += layer.get_wgrad_flops()
+        self._block_wgrad_flops_time += layer.compute_flops_time(
+          self.sys, "wgrad")
+        self._block_wgrad_mem_accessed += layer.get_wgrad_mem_accessed()
+        self._block_wgrad_mem_time += layer.compute_mem_time(self.sys, "wgrad")
+        self._block_wgrad_time += layer.compute_processing_time(
+          self.sys, "wgrad")
         self._block_optim_flops += layer.get_optim_step_flops()
         self._block_optim_flops_time += layer.compute_flops_time(
           self.sys, "optim")
@@ -838,7 +867,9 @@ class Megatron:
       self.log.debug("%s %s %.3e", layer.name, 'FW time:',
                      layer.compute_processing_time(self.sys, "fw"))
       self.log.debug("%s %s %s", layer.name, 'BW flops:',
-                     human_format(layer.get_bw_flops(), 'flops'))
+                     human_format(
+                      layer.get_agrad_flops() + layer.get_wgrad_flops(),
+                      'flops'))
       self.log.debug("%s %s %s", layer.name, 'BW num Wgrads:',
                      human_format(layer.weight_grads, 'bytes'))
       self.log.debug("%s %s %s", layer.name, 'BW num Agrads:',
@@ -846,9 +877,12 @@ class Megatron:
       self.log.debug("%s %s %s", layer.name, 'BW num Igrads:',
                      human_format(layer.output_size, 'bytes'))
       self.log.debug("%s %s %s", layer.name, 'BW mem:',
-                     human_format(layer.get_bw_mem_accessed(), 'bytes'))
+                     human_format(
+                      layer.get_agrad_mem_accessed() +
+                      layer.get_wgrad_mem_accessed(), 'bytes'))
       self.log.debug("%s %s %.3e", layer.name, 'BW time:',
-                     layer.compute_processing_time(self.sys, "bw"))
+                     layer.compute_processing_time(self.sys, "agrad") +
+                     layer.compute_processing_time(self.sys, "wgrad"))
       self.log.debug("%s %s %s", layer.name, 'Optim flops:',
                      human_format(layer.get_optim_step_flops(), 'flops'))
       self.log.debug("%s %s %s", layer.name, 'BW Optimizer size:',
@@ -960,11 +994,16 @@ class Megatron:
     self._re_mem_accessed = mult * self._block_re_mem_accessed
     self._re_mem_time = mult * self._block_re_mem_time
     self._re_time = mult * self._block_re_time
-    self._bw_flops = mult * self._block_bw_flops
-    self._bw_flops_time = mult * self._block_bw_flops_time
-    self._bw_mem_accessed = mult * self._block_bw_mem_accessed
-    self._bw_mem_time = mult * self._block_bw_mem_time
-    self._bw_time = mult * self._block_bw_time
+    self._agrad_flops = mult * self._block_agrad_flops
+    self._agrad_flops_time = mult * self._block_agrad_flops_time
+    self._agrad_mem_accessed = mult * self._block_agrad_mem_accessed
+    self._agrad_mem_time = mult * self._block_agrad_mem_time
+    self._agrad_time = mult * self._block_agrad_time
+    self._wgrad_flops = mult * self._block_wgrad_flops
+    self._wgrad_flops_time = mult * self._block_wgrad_flops_time
+    self._wgrad_mem_accessed = mult * self._block_wgrad_mem_accessed
+    self._wgrad_mem_time = mult * self._block_wgrad_mem_time
+    self._wgrad_time = mult * self._block_wgrad_time
     self._optim_flops = mult * self._block_optim_flops
     self._optim_flops_time = mult * self._block_optim_flops_time
     self._optim_mem_accessed = mult * self._block_optim_mem_accessed
@@ -1108,10 +1147,10 @@ class Megatron:
     self._edgeblock_fw_time_no_offload = (
       self._block_fw_time + edgeblock_fw_tp_time + chunk_fw_pp_time)
     self._baseblock_fw_offload_overhead = max(
-      0, self.get_fw_offload_time() + self._block_fw_mem_time - \
+      0, self.get_fw_offload_time() + self._block_fw_mem_time -
       self._baseblock_fw_time_no_offload)
     self._edgeblock_fw_offload_overhead = max(
-      0, self.get_fw_offload_time() + self._block_fw_mem_time - \
+      0, self.get_fw_offload_time() + self._block_fw_mem_time -
       self._edgeblock_fw_time_no_offload)
     self._baseblock_fw_time = (
       self._baseblock_fw_time_no_offload + self._baseblock_fw_offload_overhead)
@@ -1119,18 +1158,20 @@ class Megatron:
       self._edgeblock_fw_time_no_offload + self._edgeblock_fw_offload_overhead)
     # When we consider block BW time, we add optimizer step to it
     self._baseblock_bw_time_no_offload = (
-      self._block_re_time + block_recomm_time +
-      self._block_bw_time + self._block_optim_time + baseblock_bw_tp_time)
+      self._block_re_time + block_recomm_time + self._block_agrad_time +
+      self._block_wgrad_time + self._block_optim_time + baseblock_bw_tp_time)
     self._edgeblock_bw_time_no_offload = (
-      self._block_re_time + block_recomm_time +
-      self._block_bw_time + self._block_optim_time + \
+      self._block_re_time + block_recomm_time + self._block_agrad_time +
+      self._block_wgrad_time + self._block_optim_time +
       edgeblock_bw_tp_time + chunk_bw_pp_time)
     self._baseblock_bw_offload_overhead = max(
-      0, self.get_bw_offload_time() + self._block_bw_mem_time + \
-      self._block_optim_mem_time - self._baseblock_bw_time_no_offload)
+      0, self.get_bw_offload_time() + self._block_agrad_mem_time +
+      self._block_wgrad_mem_time + self._block_optim_mem_time -
+      self._baseblock_bw_time_no_offload)
     self._edgeblock_bw_offload_overhead = max(
-      0, self.get_bw_offload_time() + self._block_bw_mem_time + \
-      self._block_optim_mem_time - self._edgeblock_bw_time_no_offload)
+      0, self.get_bw_offload_time() + self._block_agrad_mem_time +
+      self._block_wgrad_mem_time + self._block_optim_mem_time - 
+      self._edgeblock_bw_time_no_offload)
     self._baseblock_bw_time = (
       self._baseblock_bw_time_no_offload + self._baseblock_bw_offload_overhead)
     self._edgeblock_bw_time = (
@@ -1186,7 +1227,8 @@ class Megatron:
       self._edgeblock_fw_offload_overhead)
     self.log.debug("%s %s", 'Block REcomm time:', block_recomm_time)
     self.log.debug("%s %s", 'Block RE time:', self._block_re_time)
-    self.log.debug("%s %s", 'Block BW time:', self._block_bw_time)
+    self.log.debug("%s %s", 'Block BW Agrad time:', self._block_agrad_time)
+    self.log.debug("%s %s", 'Block BW Wgrad time:', self._block_wgrad_time)
     self.log.debug("%s %s", 'Block optim time:', self._block_optim_time)
     self.log.debug("%s %s", 'Baseblock BW time:', self._baseblock_bw_time)
     self.log.debug("%s %s", 'With BW offload overhead time:',
@@ -1391,11 +1433,16 @@ class Megatron:
     assert self._re_mem_accessed >= self._block_re_mem_accessed
     assert self._re_mem_time >= self._block_re_mem_time
     assert self._re_time >= self._block_re_time
-    assert self._bw_flops >= self._block_bw_flops
-    assert self._bw_flops_time >= self._block_bw_flops_time
-    assert self._bw_mem_accessed >= self._block_bw_mem_accessed
-    assert self._bw_mem_time >= self._block_bw_mem_time
-    assert self._bw_time >= self._block_bw_time
+    assert self._agrad_flops >= self._block_agrad_flops
+    assert self._agrad_flops_time >= self._block_agrad_flops_time
+    assert self._agrad_mem_accessed >= self._block_agrad_mem_accessed
+    assert self._agrad_mem_time >= self._block_agrad_mem_time
+    assert self._agrad_time >= self._block_agrad_time
+    assert self._wgrad_flops >= self._block_wgrad_flops
+    assert self._wgrad_flops_time >= self._block_wgrad_flops_time
+    assert self._wgrad_mem_accessed >= self._block_wgrad_mem_accessed
+    assert self._wgrad_mem_time >= self._block_wgrad_mem_time
+    assert self._wgrad_time >= self._block_wgrad_time
     assert self._optim_flops >= self._block_optim_flops
     assert self._optim_flops_time >= self._block_optim_flops_time
     assert self._optim_mem_accessed >= self._block_optim_mem_accessed
@@ -1486,7 +1533,7 @@ class Megatron:
     return full_overhead
 
   def get_bw_time(self):
-    return self._bw_time
+    return self._agrad_time + self._wgrad_time
 
   def get_optim_step_time(self):
     return self._optim_time
@@ -1555,8 +1602,8 @@ class Megatron:
       [block.get_fw_flops() for block in self._megatron_block])
     if self.exe.training:
       total_flops += sum(
-        [block.get_bw_flops() + block.get_optim_step_flops() \
-          for block in self._megatron_block])
+        [block.get_agrad_flops() + block.get_wgrad_flops() + \
+          block.get_optim_step_flops() for block in self._megatron_block])
     return total_flops
 
   def get_compute_efficiency(self):
@@ -1679,10 +1726,10 @@ class Megatron:
     # (i-1) / (i+1).
     if self.exe.training:
       offload_time = min(
-        self._baseblock_bw_time_no_offload - (
-          self._block_bw_mem_time + self._block_optim_mem_time),
-        self._edgeblock_bw_time_no_offload - (
-          self._block_bw_mem_time + self._block_optim_mem_time))
+        self._baseblock_bw_time_no_offload - (self._block_agrad_mem_time +
+          self._block_wgrad_mem_time + self._block_optim_mem_time),
+        self._edgeblock_bw_time_no_offload - (self._block_agrad_mem_time +
+          self._block_wgrad_mem_time + self._block_optim_mem_time))
       return (self._block_weight_grad_space + self._block_optimizer_space) / \
         offload_time
     else:
@@ -1694,10 +1741,10 @@ class Megatron:
       self._edgeblock_fw_time_no_offload - self._block_fw_mem_time)
     if self.exe.training:
       bw_offload_time = min(
-        self._baseblock_bw_time_no_offload - (
-          self._block_bw_mem_time + self._block_optim_mem_time),
-        self._edgeblock_bw_time_no_offload - (
-          self._block_bw_mem_time + self._block_optim_mem_time))
+        self._baseblock_bw_time_no_offload - (self._block_agrad_mem_time +
+          self._block_wgrad_mem_time + self._block_optim_mem_time),
+        self._edgeblock_bw_time_no_offload - (self._block_agrad_mem_time +
+          self._block_wgrad_mem_time +self._block_optim_mem_time))
       req_bw = max(self._get_fw_offload_size() / fw_offload_time,
                    self._get_bw_offload_size() / bw_offload_time)
       return req_bw

@@ -25,13 +25,15 @@ class Layer:
   memory access, or network operation.
   """
 
-  def __init__(self, name, fw_flops=0, bw_flops=0, inputs_size=0,
-               output_size=0, activation_space=0, activation_grads=0,
-               weight_space=0, weight_grads=0, optim_space=0,
-               needs_recompute=False, activation_not_stored=False):
+  def __init__(self, name, fw_flops=0, agrad_flops=0, wgrad_flops=0,
+               inputs_size=0, output_size=0, activation_space=0,
+               activation_grads=0, weight_space=0, weight_grads=0,
+               optim_space=0,
+              needs_recompute=False, activation_not_stored=False):
     self.name = name
     self.fw_flops = fw_flops
-    self.bw_flops = bw_flops
+    self.agrad_flops = agrad_flops
+    self.wgrad_flops = wgrad_flops
     self.inputs_size = inputs_size
     self.output_size = output_size
     # activations equal input size, we store them to compute Wgrad during BW
@@ -57,9 +59,12 @@ class Layer:
       'fw_flops': self.get_fw_flops(),
       'fw_mem_accessed': self.get_fw_mem_accessed(),
       'fw_arithmetic_intensity': self.get_fw_arithmetic_intensity(),
-      'bw_flops': self.get_bw_flops(),
-      'bw_mem_accessed': self.get_bw_mem_accessed(),
-      'bw_arithmetic_intensity': self.get_bw_arithmetic_intensity(),
+      'agrad_flops': self.get_agrad_flops(),
+      'agrad_mem_accessed': self.get_agrad_mem_accessed(),
+      'agrad_arithmetic_intensity': self.get_agrad_arithmetic_intensity(),
+      'wgrad_flops': self.get_wgrad_flops(),
+      'wgrad_mem_accessed': self.get_wgrad_mem_accessed(),
+      'wgrad_arithmetic_intensity': self.get_wgrad_arithmetic_intensity(),
       'optim_flops': self.get_optim_step_flops(),
       'optim_mem_accessed': self.get_optim_step_mem_accessed(),
       'optim_arithmetic_intensity': self.get_optim_step_arithmetic_intensity(),
@@ -76,10 +81,16 @@ class Layer:
       human_format(self.get_fw_flops(), 'flops'),
       human_format(self.get_fw_mem_accessed(), 'bytes'))
     stats += " FW AI: {0:.3f}\n".format(self.get_fw_arithmetic_intensity())
-    stats += "{0} BW flops, {1} BW bytes accessed,".format(
-      human_format(self.get_bw_flops(), 'flops'),
-      human_format(self.get_bw_mem_accessed(), 'bytes'))
-    stats += " BW AI: {0:.3f}\n".format(self.get_bw_arithmetic_intensity())
+    stats += "{0} BW Adrad flops, {1} BW Agrad bytes accessed,".format(
+      human_format(self.get_agrard_flops(), 'flops'),
+      human_format(self.get_agrad_mem_accessed(), 'bytes'))
+    stats += " BW Agrad AI: {0:.3f}\n".format(
+      self.get_agrad_arithmetic_intensity())
+    stats += "{0} BW Wdrad flops, {1} BW Wgrad bytes accessed,".format(
+      human_format(self.get_wgrard_flops(), 'flops'),
+      human_format(self.get_wgrad_mem_accessed(), 'bytes'))
+    stats += " BW Wgrad AI: {0:.3f}\n".format(
+      self.get_wgrad_arithmetic_intensity())
     stats += "{0} Optim flops, {1} Optim bytes accessed,".format(
       human_format(self.get_optim_step_flops(), 'flops'),
       human_format(self.get_optim_step_mem_accessed(), 'bytes'))
@@ -119,23 +130,45 @@ class Layer:
   def get_recompute_flag(self):
     return self.needs_recompute
 
-  def get_bw_flops(self):
-    return self.bw_flops
+  def get_agrad_flops(self):
+    return self.agrad_flops
 
-  def get_bw_mem_accessed(self):
-    fw_mem = self.get_fw_mem_accessed()
+  def get_agrad_mem_accessed(self):
     # activation grads equal output size and correspond grads w.r.t.
-    # layer output; activation grads, computed grads are equal to input size
-    grad_mem = self.weight_grads + self.activation_grads + self.inputs_size
+    # layer output; activations are equal to input size
+    grad_mem = self.weight_space + (
+      self.activation_space + self.activation_grads)
     grad_mem *= self.bytes_per_element
-    return fw_mem + grad_mem
+    return grad_mem
 
-  def get_bw_arithmetic_intensity(self):
-    if self.bw_flops == 0:
+  def get_agrad_arithmetic_intensity(self):
+    if self.agrad_flops == 0:
       return 0
-    if self.get_bw_mem_accessed() == 0:
+    if self.get_agrad_mem_accessed() == 0:
       return float('inf')
-    return self.bw_flops / self.get_bw_mem_accessed()
+    return self.agrad_flops / self.get_agrad_mem_accessed()
+
+  def get_wgrad_flops(self):
+    return self.wgrad_flops
+
+  def get_wgrad_mem_accessed(self):
+    if self.weight_space == 0:
+      assert self.wgrad_flops == 0, \
+        f"Haven't expected to see wgrad flops in layer {self.name}"
+      return 0
+    # activation grads equal output size and correspond grads w.r.t.
+    # layer output; activations are equal to input size
+    grad_mem = self.weight_grads + (
+      self.activation_space + self.activation_grads)
+    grad_mem *= self.bytes_per_element
+    return grad_mem
+
+  def get_wgrad_arithmetic_intensity(self):
+    if self.wgrad_flops == 0:
+      return 0
+    if self.get_wgrad_mem_accessed() == 0:
+      return float('inf')
+    return self.wgrad_flops / self.get_wgrad_mem_accessed()
 
   # We use Adam optimizer. The amount of flops is based on the number of
   # weight grads to accommodate for possible weight_grad sharding
@@ -199,8 +232,10 @@ class Layer:
   def compute_flops_time(self, sys, stage):
     if stage == "fw":
       flops = self.get_fw_flops()
-    elif stage == "bw":
-      flops = self.get_bw_flops()
+    elif stage == "agrad":
+      flops = self.get_agrad_flops()
+    elif stage == "wgrad":
+      flops = self.get_wgrad_flops()
     elif stage == "optim":
       flops = self.get_optim_step_flops()
     else:
@@ -214,8 +249,10 @@ class Layer:
   def compute_mem_time(self, sys, stage):
     if stage == "fw":
       mem = self.get_fw_mem_accessed()
-    elif stage == "bw":
-      mem = self.get_bw_mem_accessed()
+    elif stage == "agrad":
+      mem = self.get_agrad_mem_accessed()
+    elif stage == "wgrad":
+      mem = self.get_wgrad_mem_accessed()
     elif stage == "optim":
       mem = self.get_optim_step_mem_accessed()
     else:
@@ -240,7 +277,8 @@ class Linear(Layer):
     m, n, k = batch_seq, c_in, c_out
     super().__init__(name,
                      fw_flops=2*m*n*k,
-                     bw_flops=2*2*m*n*k,
+                     agrad_flops=2*m*n*k,
+                     wgrad_flops=2*m*n*k,
                      inputs_size=m*n,
                      output_size=m*k,
                      weight_space=n*k,
@@ -260,7 +298,7 @@ class BatchMatMul(Layer):
     m, n, k = size_a, contraction_size, size_b
     super().__init__(name,
                      fw_flops=batch*2*m*n*k,
-                     bw_flops=batch*2*2*m*n*k,
+                     agrad_flops=batch*2*2*m*n*k,
                      inputs_size=batch*(m*n+n*k),
                      output_size=batch*m*k,
                      activation_space=batch*(m*n+n*k),
@@ -278,7 +316,8 @@ class LayerNorm(Layer):
                needs_recompute=False, activation_not_stored=False):
     super().__init__(name,
                      fw_flops=9*act_size,
-                     bw_flops=21*act_size,
+                     agrad_flops=14*act_size,
+                     wgrad_flops=7*act_size,
                      inputs_size=act_size,
                      output_size=act_size,
                      activation_space=act_size,
@@ -295,7 +334,7 @@ class DropOut(Layer):
                needs_recompute=False, activation_not_stored=False):
     super().__init__(name,
                      fw_flops=act_size,
-                     bw_flops=act_size,
+                     agrad_flops=act_size,
                      inputs_size=act_size,
                      output_size=act_size,
                      activation_space=act_size,
@@ -321,7 +360,7 @@ class DropOut(Layer):
     mem_accessed += mask_size
     return mem_accessed
 
-  def get_bw_mem_accessed(self):
+  def get_agrad_mem_accessed(self):
     return self.get_fw_mem_accessed()
 
 
@@ -339,14 +378,14 @@ class GeLU(Layer):
     else:
       eff_act_space = act_size
       eff_act_grads = act_size
-    super().__init__(name, fw_flops=8*act_size, bw_flops=13*act_size,
+    super().__init__(name, fw_flops=8*act_size, agrad_flops=13*act_size,
                      inputs_size=act_size, output_size=act_size,
                      activation_space=eff_act_space,
                      activation_grads=eff_act_grads,
                      needs_recompute=needs_recompute,
                      activation_not_stored=activation_not_stored)
 
-  def get_bw_mem_accessed(self):
+  def get_agrad_mem_accessed(self):
     return self.get_fw_mem_accessed()
 
 
@@ -356,7 +395,7 @@ class SoftMax(Layer):
                needs_recompute=False, activation_not_stored=False):
     super().__init__(name,
                      fw_flops=5*act_size,
-                     bw_flops=8*act_size,
+                     agrad_flops=8*act_size,
                      inputs_size=act_size,
                      output_size=act_size,
                      activation_space=act_size,
@@ -364,7 +403,7 @@ class SoftMax(Layer):
                      needs_recompute=needs_recompute,
                      activation_not_stored=activation_not_stored)
 
-  def get_bw_mem_accessed(self):
+  def get_agrad_mem_accessed(self):
     return self.get_fw_mem_accessed()
 
 
@@ -375,7 +414,7 @@ class ElementWise(Layer):
     act_size = max(operand1, operand2)
     super().__init__(name,
                      fw_flops=act_size,
-                     bw_flops=(operand1+operand2),
+                     agrad_flops=(operand1+operand2),
                      inputs_size=(operand1+operand2),
                      output_size=act_size,
                      activation_space=(operand1+operand2),
@@ -391,7 +430,7 @@ class Fork(Layer):
     self.num_users = num_users
     super().__init__(name,
                      inputs_size=act_size,
-                     bw_flops=num_users*act_size,
+                     agrad_flops=num_users*act_size,
                      activation_space=act_size,
                      # Gradients from num_users accumulated in a single storage
                      # that's accounted in the other layers
@@ -400,7 +439,7 @@ class Fork(Layer):
                      needs_recompute=needs_recompute,
                      activation_not_stored=activation_not_stored)
 
-  def get_bw_mem_accessed(self):
+  def get_agrad_mem_accessed(self):
     return self.activation_space * self.bytes_per_element * (
       self.num_users + 1)
 
@@ -441,7 +480,7 @@ class TPComm(Layer):
           out_size /= comm_size
     super().__init__(name,
                      fw_flops=fw_flops,
-                     bw_flops=bw_flops,
+                     agrad_flops=bw_flops,
                      inputs_size=in_size,
                      output_size=out_size,
                      activation_space=in_size,
