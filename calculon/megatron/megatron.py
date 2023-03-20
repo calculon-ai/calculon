@@ -1182,11 +1182,32 @@ class Megatron:
     chunk_bw_time = (
       (self._baseblocks_per_chunk * self._baseblock_bw_time) +
       (self._edgeblocks_per_chunk * self._edgeblock_bw_time))
+    # Can't overlap DP comm with mem accesses, but can overlap with offload
+    baseblock_dp_overlap_time = self._baseblock_bw_time - (
+      self._block_agrad_mem_time + self._block_wgrad_mem_time +
+      self._block_re_mem_time)
+    edgeblock_dp_overlap_time = self._edgeblock_bw_time - (
+      self._block_agrad_mem_time + self._block_wgrad_mem_time +
+      self._block_re_mem_time)
+    block_dp_compute_time = (
+      self._block_agrad_flops_time + self._block_agrad_flops_time +
+      self._block_re_flops_time)
+    if self.exe.optimizer_sharding:
+      # Can't overlap split optimizer step with communication
+      baseblock_dp_overlap_time -= self._block_optim_time
+      edgeblock_dp_overlap_time -= self._block_optim_time
+    else:
+      baseblock_dp_overlap_time -= self._block_optim_mem_time
+      edgeblock_dp_overlap_time -= self._block_optim_mem_time
+      block_dp_compute_time += self._block_optim_flops_time
+    if self._dp_net == self._tp_net:
+      # Can't overlap DP with TP if in the same network
+      baseblock_dp_overlap_time -= baseblock_bw_tp_time + block_recomm_time
+      edgeblock_dp_overlap_time -= edgeblock_bw_tp_time + block_recomm_time
     chunk_dp_overlap_time = (
-      (self._baseblocks_per_chunk * (
-        self._baseblock_bw_time - self._block_optim_time)) +
-      (self._edgeblocks_per_chunk * (
-        self._edgeblock_bw_time - self._block_optim_time)))
+      self._baseblocks_per_chunk * baseblock_dp_overlap_time +
+      self._edgeblocks_per_chunk * edgeblock_dp_overlap_time)
+    chunk_dp_compute_time = self._blocks_per_chunk * block_dp_compute_time
     chunk_time = chunk_fw_time + chunk_bw_time
     # Block bubbles appear due to uneven division of blocks by pipeline stages
     # and result in the schedule bubble shorten by the missing edge blocks on
@@ -1264,11 +1285,11 @@ class Megatron:
 
     # DP overlap happens if DP time for a previous block(s) is lower than
     # microbatch BW pass time for next pack of consecutive blocks
-    # In case of no interleaving, we move a single microbatch through each block
+    # If no interleaving, we move a single microbatch through each block
     # and need to overlap DP during a single block single microbatch time
     # In case of full interleaving, we propagate p microbatches through each
     # block and need to overlap DP comm with p-1 microbatches over a block
-    # In a mixed case, we can overlap DP communication of several
+    # In a mixed case, we can overlap DP communication of several chunks, e.g.
     # non-interleaved blocks (L/gpu / interleaving_factor) over BW pass of
     # p-1 microbatches through the same amount of blocks if memory capacity is
     # enough, or perform offload/prefetch after each block-microbatch
@@ -1281,44 +1302,62 @@ class Megatron:
         num_overlappable_chunks = self.exe.pipeline_interleaving - 1
         last_chunk_overlap_size = self._blocks_per_chunk - 1
         # We can overlap DP with BW pass, overlap[ing AR for previous layer
-        # with BW for current, except when optimizer sharded we can't overlap
+        # with BW for current, except when optimizer sharded. We can't overlap
         # during optimizer step as we RS grads before step and AG weights after
         # Overlappable chunks have overlap size equal to
         # blocks_per_chunk * num_microbatches
         # In case of 1F1B schedule, num_microbatches == pipeline_par
-        if self.exe.optimizer_sharding:
-          overlap_window = self.exe.pipeline_par * chunk_dp_overlap_time
-        else:
-          overlap_window = self.exe.pipeline_par * chunk_bw_time
+        overlap_window = self.exe.pipeline_par * chunk_dp_overlap_time
+        overlap_compute = self.exe.pipeline_par * chunk_dp_compute_time
         chunk_dp_time = self._blocks_per_chunk * self._block_dp_time
         # We may have PP and DP comm colliding if DP comm takes longer than
         # a single chunk BW time. We can't collide more PP than microbatches
-        if self.exe._num_microbatches % self.exe.pipeline_par != 0:
-          num_overlapped_pp = min(
-            chunk_dp_time // chunk_bw_time,
-            self.exe._num_microbatches % self.exe.pipeline_par)
+        if self._dp_net == self._pp_net:
+          if self.exe._num_microbatches % self.exe.pipeline_par != 0:
+            num_overlapped_pp = min(
+              chunk_dp_time // chunk_bw_time,
+              self.exe._num_microbatches % self.exe.pipeline_par)
+          else:
+            num_overlapped_pp = min(
+              chunk_dp_time // chunk_bw_time,
+              self.exe.pipeline_par)
         else:
-          num_overlapped_pp = min(
-            chunk_dp_time // chunk_bw_time,
-            self.exe.pipeline_par)
-        overlappable_chunks_exposed_time = num_overlappable_chunks * \
-          max(0, chunk_dp_time + num_overlapped_pp * chunk_bw_pp_time - \
-            overlap_window)
+          # if PP and DP on different networks, overlapping is fine
+          num_overlapped_pp = 0
+        # we add DP/PP collision time and compute slowdown due to overlap
+        overlap_inflection = chunk_dp_time - (overlap_window -
+          num_overlapped_pp * chunk_bw_pp_time) + overlap_compute * \
+          self._dp_net.processor_usage
+        if overlap_inflection > 0:
+          # Tcomm is larger than compute, excess is exposed
+          overlappable_chunks_exposed_time = num_overlappable_chunks * \
+            overlap_inflection
+        else:
+          # Tcomm is smaller than compute and hidden, but it contributes to
+          # compute slowdown due part of compute resources orchestrating comm
+          overlappable_chunks_exposed_time = num_overlappable_chunks * \
+            chunk_dp_time * self._dp_net.processor_usage
         # in the last chunk, we overlap DP comm over last edge block and all
         # middle blocks, so we substract the time of the first edge block
         if self._baseblocks_per_chunk > 0:
-          if self.exe.optimizer_sharding:
-            last_chunk_window = chunk_dp_overlap_time - chunk_bw_pp_time - (
-              self._baseblock_bw_time + self._edgeblock_bw_time) / 2
-          else:
-            last_chunk_window = chunk_bw_time - chunk_bw_pp_time - (
-              self._baseblock_bw_time + self._edgeblock_bw_time) / 2
+          last_chunk_window = chunk_dp_overlap_time - chunk_bw_pp_time - (
+            self._baseblock_bw_time + self._edgeblock_bw_time) / 2
         else:
           # if there is no base blocks, we only have a single edge block
           # and last chunk is completely not overlappable
           last_chunk_window = 0
-        last_chunk_exposed_time = max(0, (
-          last_chunk_overlap_size * self._block_dp_time - last_chunk_window))
+        last_chunk_inflection = (
+          last_chunk_overlap_size * self._block_dp_time) + (
+            block_dp_compute_time * self._dp_net.processor_usage -
+            last_chunk_window)
+        if last_chunk_inflection > 0:
+          # Tcomm is larger than compute, excess is exposed
+          last_chunk_exposed_time = last_chunk_inflection
+        else:
+          # Tcomm is smaller than compute and hidden, but it contributes to
+          # compute slowdown due part of compute resources orchestrating comm
+          last_chunk_exposed_time = last_chunk_overlap_size * \
+            self._block_dp_time * self._dp_net.processor_usage
         exposed_time = \
           overlappable_chunks_exposed_time + last_chunk_exposed_time
         self._dp_comm_time = self._block_dp_time + exposed_time

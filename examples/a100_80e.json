@@ -50,7 +50,8 @@
         "all_reduce": 1.5
       },
       "collective_minus1_scalar": true,
-      "must_be_filled": true
+      "must_be_filled": true,
+      "processor_usage": 0.15
     },{
       "bandwidth": 25,
       "efficiency": 0.9,
@@ -63,7 +64,8 @@
         "all_reduce": 1.0
       },
       "collective_minus1_scalar": true,
-      "must_be_filled": false
+      "must_be_filled": false,
+      "processor_usage": 0.02
     }
   ]
 }
