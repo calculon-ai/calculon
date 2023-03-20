@@ -668,7 +668,7 @@ class Megatron:
     # If we have number of blocks not divisible by PP, we can allocate the
     # reminder of the blocks on the first num_block % PP Procs and block
     # "bubbles" on the last PP - (num_block % PP) Procs. To reflect that,
-    # we round up blocks_per_prock. We report time for Proc0. In that case
+    # we round up blocks_per_proc. We report time for Proc0. In that case
     # its bubble time is `PP - (num_block % PP)` blocks shorter
     self._blocks_per_proc = self.app.num_blocks // self.exe.pipeline_par
     if self.app.num_blocks % self.exe.pipeline_par != 0:
@@ -1346,23 +1346,28 @@ class Megatron:
     # for full recompute we keep single block's activations
     # (no scaling by L/gpu)
     if self.exe.training:
+      # With 1F1B schedule we only keep `pipeline_par` microbatches
+      # If num_microbatches < PP, we keep num_microbatches for all PP stages
+      if self.exe._num_microbatches < self.exe.pipeline_par:
+        mem_microbatches = self.exe._num_microbatches
+      else:
+        mem_microbatches = self.exe.pipeline_par
       if self.exe.activation_recompute == "full":
         assert self._block_act_storage_space == 0, \
           "We expect with full act recomputation we recompute ALL activations"
         self._act_space = self._block_act_working_space
-        # We would need to store checkpoints for all microbatches before we compute
-        # BW pass with regular schedule, but we ONLY use 1F1B schedule
-        # With 1F1B schedule we only keep `pipeline_par` microbatches
+        # We would need to store checkpoints for all microbatches before we
+        # compute BW pass with regular schedule, but we ONLY use 1F1B schedule
         self._act_checkpoint_size = self._blocks_per_proc * \
           self._block_act_checkpoint_size
-        # Keep activations for all pipeline stages for PP
+        # Keep activation checkpoints for all pipeline stages for PP
         if self.exe.pipeline_interleaving > 1:
-          self._act_checkpoint_size *= self.exe.pipeline_par * (
+          self._act_checkpoint_size *= mem_microbatches * (
             1 + (self.exe.pipeline_par - 1) / (self.exe.pipeline_interleaving *
                                                self.exe.pipeline_par))
         else:
           assert self.exe.pipeline_interleaving == 1
-          self._act_checkpoint_size *= self.exe.pipeline_par
+          self._act_checkpoint_size *= mem_microbatches
       else:
         # Without full recompute, we don't need checkpoints
         self._act_checkpoint_size = 0
@@ -1370,12 +1375,12 @@ class Megatron:
         # one activation for working block, and activation for other blocks for
         # all pipeline stages w.r.t. interleaved 1F1B schedule
         if self.exe.pipeline_interleaving > 1:
-          pp_microbatch_factor = self.exe.pipeline_par * (
+          pp_microbatch_factor = mem_microbatches * (
             1 + (self.exe.pipeline_par - 1) / (self.exe.pipeline_interleaving *
                                                self.exe.pipeline_par))
         else:
           assert self.exe.pipeline_interleaving == 1
-          pp_microbatch_factor = self.exe.pipeline_par
+          pp_microbatch_factor = mem_microbatches
         self._act_space = self._block_act_working_space + \
           self._block_act_storage_space * (
             self._blocks_per_proc * pp_microbatch_factor - 1)
