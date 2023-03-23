@@ -28,8 +28,8 @@ class Layer:
   def __init__(self, name, fw_flops=0, agrad_flops=0, wgrad_flops=0,
                inputs_size=0, output_size=0, activation_space=0,
                activation_grads=0, weight_space=0, weight_grads=0,
-               optim_space=0,
-              needs_recompute=False, activation_not_stored=False):
+               optim_space=0, needs_recompute=False, activation_reused=False,
+               activation_stored=True, output_stored=True):
     self.name = name
     self.fw_flops = fw_flops
     self.agrad_flops = agrad_flops
@@ -47,7 +47,9 @@ class Layer:
 
     # Add optimizations and parallelization split
     self.needs_recompute = needs_recompute
-    self.activation_not_stored = activation_not_stored
+    self.activation_reused=activation_reused
+    self.activation_stored = activation_stored
+    self.output_stored = output_stored
     # Before bytes_per_element set by SW config, we operate with just
     # parameter count, setting bytes_per_element to 1
     self.bytes_per_element = 1
@@ -130,6 +132,15 @@ class Layer:
   def get_recompute_flag(self):
     return self.needs_recompute
 
+  def reuses_activation(self):
+    return self.activation_reused
+
+  def stores_activation(self):
+    return self.activation_stored
+
+  def stores_output(self):
+    return self.output_stored
+
   def get_agrad_flops(self):
     return self.agrad_flops
 
@@ -191,9 +202,10 @@ class Layer:
     return self.weight_space * self.bytes_per_element
 
   def get_activation(self):
-    if self.activation_not_stored:
-      return 0
     return self.activation_space * self.bytes_per_element
+
+  def get_output(self):
+    return self.output_size * self.bytes_per_element
 
   def get_weight_grad(self, sharded=True):
     # Keep lower precision copy of grads for mem and net transfers
@@ -273,7 +285,8 @@ class Layer:
 # rewriting parent class member functions when needed
 class Linear(Layer):
   def __init__(self, name, batch_seq, c_in, c_out,
-               needs_recompute=False, activation_not_stored=False):
+               needs_recompute=False, activation_reused=False,
+               activation_stored=True, output_stored=True):
     m, n, k = batch_seq, c_in, c_out
     super().__init__(name,
                      fw_flops=2*m*n*k,
@@ -287,14 +300,17 @@ class Linear(Layer):
                      activation_grads=m*k,
                      optim_space=2*n*k,
                      needs_recompute=needs_recompute,
-                     activation_not_stored=activation_not_stored)
+                     activation_reused=activation_reused,
+                     activation_stored=activation_stored,
+                     output_stored=output_stored)
 
   def use_matrix_engine(self):
     return True
 
 class BatchMatMul(Layer):
   def __init__(self, name, batch, size_a, contraction_size, size_b,
-               needs_recompute=False, activation_not_stored=False):
+               needs_recompute=False, activation_reused=False,
+               activation_stored=True, output_stored=True):
     m, n, k = size_a, contraction_size, size_b
     super().__init__(name,
                      fw_flops=batch*2*m*n*k,
@@ -304,7 +320,9 @@ class BatchMatMul(Layer):
                      activation_space=batch*(m*n+n*k),
                      activation_grads=batch*m*k,
                      needs_recompute=needs_recompute,
-                     activation_not_stored=activation_not_stored)
+                     activation_reused=activation_reused,
+                     activation_stored=activation_stored,
+                     output_stored=output_stored)
 
   def use_matrix_engine(self):
     return True
@@ -313,7 +331,8 @@ class BatchMatMul(Layer):
 # https://cthorey.github.io./blog/2016/backpropagation/
 class LayerNorm(Layer):
   def __init__(self, name, act_size, hidden,
-               needs_recompute=False, activation_not_stored=False):
+               needs_recompute=False, activation_reused=False,
+               activation_stored=True, output_stored=True):
     super().__init__(name,
                      fw_flops=9*act_size,
                      agrad_flops=14*act_size,
@@ -326,12 +345,15 @@ class LayerNorm(Layer):
                      weight_grads=2*hidden,
                      optim_space=2*2*hidden,
                      needs_recompute=needs_recompute,
-                     activation_not_stored=activation_not_stored)
+                     activation_reused=activation_reused,
+                     activation_stored=activation_stored,
+                     output_stored=output_stored)
 
 
 class DropOut(Layer):
   def __init__(self, name, act_size,
-               needs_recompute=False, activation_not_stored=False):
+               needs_recompute=False, activation_reused=False,
+               activation_stored=True, output_stored=True):
     super().__init__(name,
                      fw_flops=act_size,
                      agrad_flops=act_size,
@@ -340,14 +362,14 @@ class DropOut(Layer):
                      activation_space=act_size,
                      activation_grads=act_size,
                      needs_recompute=needs_recompute,
-                     activation_not_stored=activation_not_stored)
+                     activation_reused=activation_reused,
+                     activation_stored=activation_stored,
+                     output_stored=output_stored)
 
 
   # need to account for DropOut mask of bool type that takes 1 B per element
   # mask is the only DropOut activation
   def get_activation(self):
-    if self.activation_not_stored:
-      return 0
     return self.activation_space
 
   def get_activation_grad(self):
@@ -367,7 +389,8 @@ class DropOut(Layer):
 # https://mlfromscratch.com/activation-functions-explained/#/
 class GeLU(Layer):
   def __init__(self, name, act_size,
-               needs_recompute=False, activation_not_stored=False,
+               needs_recompute=False, activation_reused=False,
+               activation_stored=True, output_stored=True,
                fused=False):
     # Fused GeLU runs right after previous Linear layer and does not store
     # activations or gradients
@@ -383,7 +406,9 @@ class GeLU(Layer):
                      activation_space=eff_act_space,
                      activation_grads=eff_act_grads,
                      needs_recompute=needs_recompute,
-                     activation_not_stored=activation_not_stored)
+                     activation_reused=activation_reused,
+                     activation_stored=activation_stored,
+                     output_stored=output_stored)
 
   def get_agrad_mem_accessed(self):
     return self.get_fw_mem_accessed()
@@ -392,7 +417,8 @@ class GeLU(Layer):
 # https://automata88.medium.com/how-to-implement-the-softmax-derivative-independently-from-any-loss-function-ae6d44363a9d
 class SoftMax(Layer):
   def __init__(self, name, act_size,
-               needs_recompute=False, activation_not_stored=False):
+               needs_recompute=False, activation_reused=False,
+               activation_stored=True, output_stored=True):
     super().__init__(name,
                      fw_flops=5*act_size,
                      agrad_flops=8*act_size,
@@ -401,7 +427,9 @@ class SoftMax(Layer):
                      activation_space=act_size,
                      activation_grads=act_size,
                      needs_recompute=needs_recompute,
-                     activation_not_stored=activation_not_stored)
+                     activation_reused=activation_reused,
+                     activation_stored=activation_stored,
+                     output_stored=output_stored)
 
   def get_agrad_mem_accessed(self):
     return self.get_fw_mem_accessed()
@@ -410,7 +438,8 @@ class SoftMax(Layer):
 # https://explained.ai/matrix-calculus/#sec:1.4.2
 class ElementWise(Layer):
   def __init__(self, name, operand1, operand2,
-               needs_recompute=False, activation_not_stored=False):
+               needs_recompute=False, activation_reused=False,
+               activation_stored=True, output_stored=True):
     act_size = max(operand1, operand2)
     super().__init__(name,
                      fw_flops=act_size,
@@ -420,13 +449,16 @@ class ElementWise(Layer):
                      activation_space=(operand1+operand2),
                      activation_grads=act_size,
                      needs_recompute=needs_recompute,
-                     activation_not_stored=activation_not_stored)
+                     activation_reused=activation_reused,
+                     activation_stored=activation_stored,
+                     output_stored=output_stored)
 
 
 # Splits activation on the forward pass, sums gradients on the backward
 class Fork(Layer):
   def __init__(self, name, act_size, num_users,
-               needs_recompute=False, activation_not_stored=False):
+               needs_recompute=False, activation_reused=False,
+               activation_stored=True, output_stored=True):
     self.num_users = num_users
     super().__init__(name,
                      inputs_size=act_size,
@@ -437,7 +469,12 @@ class Fork(Layer):
                      # use 0 here to avoid double accounting
                      activation_grads=0,
                      needs_recompute=needs_recompute,
-                     activation_not_stored=activation_not_stored)
+                     activation_reused=activation_reused,
+                     activation_stored=activation_stored,
+                     output_stored=output_stored)
+
+  def get_fw_mem_accessed(self):
+    return 0
 
   def get_agrad_mem_accessed(self):
     return self.activation_space * self.bytes_per_element * (
@@ -448,36 +485,36 @@ class TPComm(Layer):
   def __init__(self, name, act_size, comm_size,
                split_comm=False, conjugate=False,
                in_network_reduction=False,
-               needs_recompute=False,
-               activation_not_stored=False):
-    if comm_size == 1:
+               needs_recompute=False, activation_reused=False,
+               activation_stored=True, output_stored=True):
+    self.comm_size = comm_size
+    self.split_comm = split_comm
+    self.conjugate = conjugate
+    if self.comm_size == 1:
       fw_flops = 0
       bw_flops = 0
       in_size = 0
       out_size = 0
     else:
-      if not conjugate:
+      if not self.conjugate:
         # FW pass Identity/AllGather, BW pass AllReduce/ReduceScatter
         fw_flops = 0
         if not in_network_reduction:
-          bw_flops = act_size * (comm_size - 1) / comm_size
+          bw_flops = act_size * (self.comm_size - 1) / self.comm_size
         else:
           bw_flops = 0
         in_size = act_size
         out_size = act_size
-        if split_comm and not conjugate:
-          in_size /= comm_size
       else:
         # Conjugate function is opposite
         if not in_network_reduction:
-          fw_flops = act_size * (comm_size - 1) / comm_size
+          fw_flops = act_size * (self.comm_size - 1) / self.comm_size
         else:
           fw_flops = 0
         bw_flops = 0
         in_size = act_size
         out_size = act_size
-        if split_comm:
-          out_size /= comm_size
+
     super().__init__(name,
                      fw_flops=fw_flops,
                      agrad_flops=bw_flops,
@@ -486,4 +523,40 @@ class TPComm(Layer):
                      activation_space=in_size,
                      activation_grads=out_size,
                      needs_recompute=needs_recompute,
-                     activation_not_stored=activation_not_stored)
+                     activation_reused=activation_reused,
+                     activation_stored=activation_stored,
+                     output_stored=output_stored)
+
+  def get_activation(self):
+    if self.split_comm:
+      return self.activation_space * self.bytes_per_element / self.comm_size
+    else:
+      if self.conjugate:
+        return self.activation_space * self.bytes_per_element
+      else:
+        # Identity
+        return 0
+
+  def get_fw_mem_accessed(self):
+    if not self.split_comm and not self.conjugate:
+      # Identity
+      return 0
+    else:
+      return super().get_fw_mem_accessed()
+
+  def get_activation_grad(self):
+    if self.split_comm:
+      return self.activation_space * self.bytes_per_element / self.comm_size
+    else:
+      if not self.conjugate:
+        return self.activation_grads * self.bytes_per_element
+      else:
+        # Identity
+        return 0
+
+  def get_agrad_mem_accessed(self):
+    if not self.split_comm and self.conjugate:
+      # Identity
+      return 0
+    else:
+      return super().get_agrad_mem_accessed()

@@ -60,42 +60,42 @@ class Validation(calculon.CommandLine):
     kProfile = {
       'megatron-22B': {
         'none': {
-          'par_opt': 45.7,
-          'act': 59.4
+          'par_opt': 45.5625,
+          'act': 59.25
         },
         'seqsel': {
-          'par_opt': 45.7,
-          'act': 9.1
+          'par_opt': 45.5625,
+          'act': 9.5625
         }
       },
       'gpt3-175B': {
         'none': {
-          'par_opt': 45.7,
-          'act': 66.3
+          'par_opt': 45.5625,
+          'act': 66.84375
         },
         'seqsel': {
-          'par_opt': 45.7,
-          'act': 12.6
+          'par_opt': 45.5625,
+          'act': 12.3515625
         }
       },
       'turing-530B': {
         'none': {
-          'par_opt': 32,
-          'act': 114.3
+          'par_opt': 31.640625,
+          'act': 114.0234375
         },
         'seqsel': {
-          'par_opt': 32,
-          'act': 22.9
+          'par_opt': 31.640625,
+          'act': 23.076171875
         }
       },
       'megatron-1T': {
         'none': {
-          'par_opt': 33.1,
-          'act': 131.4
+          'par_opt': 32.958984375,
+          'act': 131.25
         },
         'seqsel': {
-          'par_opt': 33.1,
-          'act': 26.3
+          'par_opt': 32.958984375,
+          'act': 26.5625
         }
       }
     }

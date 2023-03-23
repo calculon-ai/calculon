@@ -462,16 +462,17 @@ class Megatron:
            self._activation_size),
       2,
       needs_recompute=recompute_flag,
-      # We account this activation when consider Residual layer
-      activation_not_stored=True))
+      # We account this activation when consider Residual and LayerNorm
+      activation_stored=True))
     self._megatron_block.append(LayerNorm(
       "AttnBlock_LayerNorm",
       pick(self.exe._sequence_par, self._seq_par_activation_size,
            self._activation_size),
       self.app.hidden,
       needs_recompute=recompute_flag,
-      # We account this activation when consider Residual layer
-      activation_not_stored=True))
+      # Activation is stored in Fork instead
+      activation_stored=False,
+      activation_reused=True))
     self._megatron_block.append(TPComm(
       "AttnBlock_F",
       self._activation_size,
@@ -487,14 +488,19 @@ class Megatron:
       "AttnBlock_Multihead_Fork",
       self._activation_size,
       3,
-      needs_recompute=recompute_flag))
+      needs_recompute=recompute_ag_flag,
+      # With seq_par, we use activations from Comm layers to reflect that
+      # they're split, otherwise we keep full size activations
+      activation_stored=(not recompute_ag_flag)))
     self._megatron_block.append(Linear(
       "AttnBlock_Query",
       self._batch_seq,
       self.app.hidden,
       self.app.attn_heads * self.app.attn_size // self.exe.tensor_par,
       needs_recompute=recompute_flag,
-      activation_not_stored=True))
+      # Activation is stored in Fork instead,
+      activation_stored=False,
+      activation_reused=True))
     if self.exe.attention_type == 'multihead':
       self._megatron_block.append(Linear(
         "AttnBlock_Key",
@@ -502,14 +508,18 @@ class Megatron:
         self.app.hidden,
         self.app.attn_heads * self.app.attn_size // self.exe.tensor_par,
         needs_recompute=recompute_flag,
-        activation_not_stored=True))
+        # Activation is stored in Fork instead,
+        activation_stored=False,
+        activation_reused=True))
       self._megatron_block.append(Linear(
         "AttnBlock_Value",
         self._batch_seq,
         self.app.hidden,
         self.app.attn_heads * self.app.attn_size // self.exe.tensor_par,
         needs_recompute=recompute_flag,
-        activation_not_stored=True))
+        # Activation is stored in Fork instead,
+        activation_stored=False,
+        activation_reused=True))
     elif self.exe.attention_type == 'multiquery':
       # Multiqueri attention uses the same K, V for all "heads" resulting in
       # smaller Wk and Wv, less matmul, faster inference
@@ -519,14 +529,18 @@ class Megatron:
         self.app.hidden,
         self.app.attn_size,
         needs_recompute=recompute_flag,
-        activation_not_stored=True))
+        # Activation is stored in Fork instead,
+        activation_stored=False,
+        activation_reused=True))
       self._megatron_block.append(Linear(
         "AttnBlock_Value",
         self._batch_seq,
         self.app.hidden,
         self.app.attn_size,
         needs_recompute=recompute_flag,
-        activation_not_stored=True))
+        # Activation is stored in Fork instead,
+        activation_stored=False,
+        activation_reused=True))
     else:
       raise self.Error('Wrong attention type', self.exe.attention_type)
     self._megatron_block.append(BatchMatMul(
@@ -535,24 +549,27 @@ class Megatron:
       self.app.seq_size,
       self.app.attn_size,
       self.app.seq_size,
-      needs_recompute=recompute_attn_flag))
+      needs_recompute=recompute_attn_flag,
+      output_stored=(not recompute_attn_flag)))
     self._megatron_block.append(SoftMax(
       "AttnBlock_Multihead_SoftMax",
       self.app.attn_heads // self.exe.tensor_par * \
         self.app.seq_size**2 * self.exe.microbatch_size,
-      needs_recompute=recompute_attn_flag))
+      needs_recompute=recompute_attn_flag,
+      output_stored=(not recompute_attn_flag)))
     self._megatron_block.append(DropOut(
       "AttnBlock_Multihead_DropOut",
       self.app.attn_heads // self.exe.tensor_par * \
         self.app.seq_size**2 * self.exe.microbatch_size,
-      needs_recompute=recompute_attn_flag))
+      needs_recompute=recompute_attn_flag,
+      activation_stored=(not recompute_attn_flag)))
     self._megatron_block.append(BatchMatMul(
       "AttnBlock_Multihead_Attn",
       self.exe.microbatch_size * self.app.attn_heads // self.exe.tensor_par,
       self.app.seq_size,
       self.app.seq_size,
       self.app.attn_heads * self.app.attn_size // self.app.attn_heads,
-      needs_recompute=recompute_attn_flag))
+      needs_recompute=recompute_flag))
     self._megatron_block.append(Linear(
       "AttnBlock_MLP",
       self._batch_seq,
@@ -570,9 +587,8 @@ class Megatron:
       conjugate=True,
       in_network_reduction=self.exe.in_network_reduction,
       needs_recompute=recompute_flag,
-      # We don't store input to it because on BW we do all_gather
-      activation_not_stored=self.exe.seq_par_ag_redo))
-
+      # We don't store input to RS/AR
+      activation_stored=False))
     self._megatron_block.append(DropOut(
       "AttnBlock_DropOut",
       pick(self.exe._sequence_par, self._seq_par_activation_size,
@@ -584,7 +600,10 @@ class Megatron:
            self._activation_size),
       pick(self.exe._sequence_par, self._seq_par_activation_size,
            self._activation_size),
-      needs_recompute=recompute_flag))
+      needs_recompute=recompute_flag,
+      # Activation is stored in Fork instead
+      activation_stored=False,
+      activation_reused=True))
 
   def _build_mlp_block(self):
     recompute_flag = self.exe.activation_recompute == "full"
@@ -596,22 +615,26 @@ class Megatron:
            self._activation_size),
       2,
       needs_recompute=recompute_flag,
-      activation_not_stored=True))
+      # We account this activation when consider Residual and LayerNorm
+      activation_stored=True))
     self._megatron_block.append(LayerNorm(
       "MlpBlock_LayerNorm",
       pick(self.exe._sequence_par, self._seq_par_activation_size,
            self._activation_size),
       self.app.hidden,
       needs_recompute=recompute_flag,
-      # We account this activation when consider Residual layer
-      activation_not_stored=True))
+      # Activation is stored in Fork instead
+      activation_stored=False,
+      activation_reused=True))
     self._megatron_block.append(TPComm(
       "MlpBlock_F",
-      self._activation_size,
-      self.exe.tensor_par,
-      # We only compute flops/mem analyzing this layers, comm analyzed later
+      # We only do compute/mem analyzing this layers, comm analyzed later
+      # We keep extra mem buffer for comm, consider full tensor mem access
+      # to be consistent with how much data comm moves/touches
       # This is conservative estimate that does not consider p2p_rs_ag
       # because we don't differentiate between edge and middle blocks here
+      self._activation_size,
+      self.exe.tensor_par,
       split_comm=self.exe._sequence_par,
       conjugate=False,
       in_network_reduction=self.exe.in_network_reduction,
@@ -621,7 +644,10 @@ class Megatron:
       self._batch_seq,
       self.app.hidden,
       self.app.feedforward // self.exe.tensor_par,
-      needs_recompute=recompute_flag))
+      needs_recompute=recompute_flag,
+      # With seq_par, we use activations from Comm layers to reflect that
+      # they're split, otherwise we keep full size activations
+      activation_stored=(not recompute_ag_flag)))
     self._megatron_block.append(GeLU(
       "MlpBlock_GeLU",
       self.app.feedforward * self._batch_seq // self.exe.tensor_par,
@@ -644,9 +670,8 @@ class Megatron:
       conjugate=True,
       in_network_reduction=self.exe.in_network_reduction,
       needs_recompute=recompute_flag,
-      # We don't store input to it because on BW we do all_gather
-      activation_not_stored=self.exe.seq_par_ag_redo))
-
+      # We don't store input to RS/AR
+      activation_stored=False))
     self._megatron_block.append(DropOut(
       "MlpBlock_DropOut",
       pick(self.exe._sequence_par, self._seq_par_activation_size,
@@ -658,7 +683,10 @@ class Megatron:
            self._activation_size),
       pick(self.exe._sequence_par, self._seq_par_activation_size,
            self._activation_size),
-      needs_recompute=recompute_flag))
+      needs_recompute=recompute_flag,
+      # Activation is stored in Fork instead
+      activation_stored=False,
+      activation_reused=True))
 
   def compile(self, exe):
     assert not self._compiled
@@ -843,10 +871,13 @@ class Megatron:
 
       # Accumulate space requirements per block
       self._block_weight_space += layer.get_weight()
-      self._block_act_working_space += layer.get_activation()
+      if not layer.reuses_activation():
+        self._block_act_working_space += layer.get_activation()
       self._block_act_storage_space += layer.get_activation()
       if self.exe.training:
-        if prev_layer_recompute:
+        if not layer.stores_output():
+          self._block_act_storage_space -= layer.get_output()
+        if not layer.stores_activation():
           self._block_act_storage_space -= layer.get_activation()
         self._block_weight_grad_space += layer.get_weight_grad()
         self._block_weight_grad_space_no_sharding += layer.get_weight_grad(
@@ -854,14 +885,22 @@ class Megatron:
         self._block_act_grad_space += layer.get_activation_grad()
         self._block_optimizer_space += layer.get_optimizer()
 
+      self.log.debug("%s %s %s", layer.name, 'Recompute flag:',
+                     str(layer.get_recompute_flag()))
+      self.log.debug("%s %s %s", layer.name, 'Stores activation:',
+                     str(layer.stores_activation()))
+      self.log.debug("%s %s %s", layer.name, 'Reuses activation:',
+                     str(layer.reuses_activation()))
+      self.log.debug("%s %s %s", layer.name, 'Stores output:',
+                     str(layer.stores_output()))
       self.log.debug("%s %s %s", layer.name, 'FW flops:',
                      human_format(layer.get_fw_flops(), 'flops'))
       self.log.debug("%s %s %s", layer.name, 'FW num inputs:',
-                     human_format(layer.inputs_size, 'bytes'))
+                     human_format(layer.inputs_size, 'base2'))
       self.log.debug("%s %s %s", layer.name, 'FW num output:',
-                     human_format(layer.output_size, 'bytes'))
+                     human_format(layer.output_size, 'base2'))
       self.log.debug("%s %s %s", layer.name, 'FW num weights:',
-                     human_format(layer.weight_space, 'bytes'))
+                     human_format(layer.weight_space, 'base2'))
       self.log.debug("%s %s %s", layer.name, 'FW mem:',
                      human_format(layer.get_fw_mem_accessed(), 'bytes'))
       self.log.debug("%s %s %.3e", layer.name, 'FW time:',
@@ -871,11 +910,11 @@ class Megatron:
                       layer.get_agrad_flops() + layer.get_wgrad_flops(),
                       'flops'))
       self.log.debug("%s %s %s", layer.name, 'BW num Wgrads:',
-                     human_format(layer.weight_grads, 'bytes'))
+                     human_format(layer.weight_grads, 'base2'))
       self.log.debug("%s %s %s", layer.name, 'BW num Agrads:',
-                     human_format(layer.activation_grads, 'bytes'))
+                     human_format(layer.activation_grads, 'base2'))
       self.log.debug("%s %s %s", layer.name, 'BW num Igrads:',
-                     human_format(layer.output_size, 'bytes'))
+                     human_format(layer.inputs_size, 'base2'))
       self.log.debug("%s %s %s", layer.name, 'BW mem:',
                      human_format(
                       layer.get_agrad_mem_accessed() +
@@ -894,8 +933,8 @@ class Megatron:
       self.log.debug("%s %s %.3e", layer.name, 'Recompute:',
                      layer.get_recompute_flag())
       self.log.debug("%s %s %s", layer.name, 'Recompute mem saving:',
-                     human_format(prev_layer_recompute * \
-                       layer.get_activation(), 'bytes'))
+                     human_format(layer.stores_output() * \
+                       layer.get_output(), 'bytes'))
       self.log.debug("%s %s %s", layer.name, 'Weight:',
                      human_format(layer.get_weight(), 'bytes'))
       self.log.debug("%s %s %s", layer.name, 'Act:',
@@ -919,6 +958,8 @@ class Megatron:
       self.log.debug("%s %s %s", layer.name, 'Incremental Optim:',
                      human_format(self._block_optimizer_space, 'bytes'))
       prev_layer_recompute = layer.get_recompute_flag()
+    if self.exe.activation_recompute == 'full':
+      self._block_act_storage_space = 0
 
     # Megatron has 2 communication operations per block when using tensor
     # parallelism
