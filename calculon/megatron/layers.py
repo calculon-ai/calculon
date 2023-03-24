@@ -25,12 +25,13 @@ class Layer:
   memory access, or network operation.
   """
 
-  def __init__(self, name, fw_flops=0, agrad_flops=0, wgrad_flops=0,
+  def __init__(self, name, sys, fw_flops=0, agrad_flops=0, wgrad_flops=0,
                inputs_size=0, output_size=0, activation_space=0,
                activation_grads=0, weight_space=0, weight_grads=0,
                optim_space=0, needs_recompute=False, activation_reused=False,
                activation_stored=True, output_stored=True):
     self.name = name
+    self.sys = sys
     self.fw_flops = fw_flops
     self.agrad_flops = agrad_flops
     self.wgrad_flops = wgrad_flops
@@ -241,7 +242,7 @@ class Layer:
   def use_matrix_engine(self):
     return False
 
-  def compute_flops_time(self, sys, stage):
+  def compute_flops_time(self, stage):
     if stage == "fw":
       flops = self.get_fw_flops()
     elif stage == "agrad":
@@ -251,14 +252,14 @@ class Layer:
     elif stage == "optim":
       flops = self.get_optim_step_flops()
     else:
-      raise Exception(f'Bad compute stage : {stage}') 
+      raise Exception(f'Bad compute stage : {stage}')
     if self.use_matrix_engine() and stage != "optim":
-      throughput = sys.get_matrix_throughput(flops)
+      throughput = self.sys.get_matrix_throughput(flops)
     else:
-      throughput = sys.get_vector_throughput(flops)
+      throughput = self.sys.get_vector_throughput(flops)
     return flops / throughput
 
-  def compute_mem_time(self, sys, stage):
+  def compute_mem_time(self, stage):
     if stage == "fw":
       mem = self.get_fw_mem_accessed()
     elif stage == "agrad":
@@ -268,27 +269,28 @@ class Layer:
     elif stage == "optim":
       mem = self.get_optim_step_mem_accessed()
     else:
-      raise Exception(f'Bad compute stage : {stage}') 
-    return mem / sys.get_mem1_throughput(mem)
+      raise Exception(f'Bad compute stage : {stage}')
+    return mem / self.sys.get_mem1_throughput(mem)
 
-  def compute_net_time(self, sys, stage):
+  def compute_net_time(self, stage, baseblock=True):
     return 0
 
-  def compute_processing_time(self, sys, stage):
-    self.processing_time =  sys.get_processing_time(
-      self.compute_flops_time(sys, stage),
-      self.compute_mem_time(sys, stage)
+  def compute_processing_time(self, stage):
+    self.processing_time =  self.sys.get_processing_time(
+      self.compute_flops_time(stage),
+      self.compute_mem_time(stage)
     )
     return self.processing_time
 
 # We can factor all layers peculiarities and layer-wise optimizations by
 # rewriting parent class member functions when needed
 class Linear(Layer):
-  def __init__(self, name, batch_seq, c_in, c_out,
+  def __init__(self, name, sys, batch_seq, c_in, c_out,
                needs_recompute=False, activation_reused=False,
                activation_stored=True, output_stored=True):
     m, n, k = batch_seq, c_in, c_out
     super().__init__(name,
+                     sys,
                      fw_flops=2*m*n*k,
                      agrad_flops=2*m*n*k,
                      wgrad_flops=2*m*n*k,
@@ -307,12 +309,108 @@ class Linear(Layer):
   def use_matrix_engine(self):
     return True
 
+class LinearOverlapped(Layer):
+  def __init__(self, name, sys, batch_seq, c_in, c_out,
+               num_tiles, net_id, num_peers, wgrad_ag_act=False,
+               conjugate=False, in_network_reduction=False,
+               needs_recompute=False, activation_reused=False,
+               activation_stored=True, output_stored=True):
+    m, n, k = batch_seq, c_in, c_out
+    self.num_tiles = num_tiles
+    self.net = sys.get_network(net_id)
+    self.num_peers = num_peers
+    self.wgrad_ag_act = wgrad_ag_act
+    self.conjugate = conjugate
+    self.in_network_reduction = in_network_reduction
+    super().__init__(name,
+                     sys,
+                     fw_flops=2*m*n*k,
+                     agrad_flops=2*m*n*k,
+                     wgrad_flops=2*m*n*k,
+                     inputs_size=m*n,
+                     output_size=m*k,
+                     weight_space=n*k,
+                     weight_grads=n*k,
+                     activation_space=m*n,
+                     activation_grads=m*k,
+                     optim_space=2*n*k,
+                     needs_recompute=needs_recompute,
+                     activation_reused=activation_reused,
+                     activation_stored=activation_stored,
+                     output_stored=output_stored)
+
+  def use_matrix_engine(self):
+    return True
+
+  def compute_net_time(self, stage, baseblock=True):
+    if self.num_peers == 1:
+      return 0
+    if self.conjugate:
+      # ReduceScatter case
+      comm_size = self.output_size
+      fw_net_time = self.net.time('reduce_scatter', comm_size, self.num_peers)
+      if not self.in_network_reduction:
+        fw_flops = comm_size * (self.num_peers - 1) / self.num_peers
+        fw_net_time += self.sys.get_vector_throughput(fw_flops)
+      bw_net_time = self.net.time('all_gather', comm_size, self.num_peers)
+    else:
+      #AllGather case
+      comm_size = self.inputs_size
+      fw_net_time = self.net.time('all_gather', comm_size, self.num_peers)
+      bw_net_time = self.net.time('reduce_scatter', comm_size, self.num_peers)
+      if not self.in_network_reduction:
+        bw_flops = comm_size * (self.num_peers - 1) / self.num_peers
+        bw_net_time += self.sys.get_vector_throughput(bw_flops)
+    if stage == 'fw':
+      return fw_net_time
+    if stage == 'agrad':
+      return bw_net_time
+    if stage == 'wgrad':
+      if not self.conjugate and self.wgrad_ag_act:
+        # AllGather Redo
+        return fw_net_time
+      else:
+        return 0
+    if stage == 'optim':
+      return 0
+
+  def compute_processing_time(self, stage):
+    flop_time = self.compute_flops_time(stage)
+    flop_time_slowed = flop_time / (1 - self.net.processor_usage)
+    mem_time = self.compute_mem_time(stage)
+    net_time = self.compute_net_time(stage)
+    compute_time = self.sys.get_processing_time(flop_time, mem_time)
+    if net_time == 0:
+      time = compute_time
+    else:
+      compute_time_slowed = self.sys.get_processing_time(
+        flop_time_slowed, mem_time)
+      flop_tile = flop_time / self.num_tiles
+      flop_tile_slowed = flop_time_slowed / self.num_tiles
+      net_tile = net_time / self.num_tiles
+      compute_tile = compute_time / self.num_tiles
+      overlap_inflection = net_tile - flop_tile_slowed
+      # we have one exposed comm tile, one exposed compute tile, and
+      # (Proc - 1) overlapped tiles, where either compute or comm is exposed
+      if overlap_inflection > 0:
+        # Tcomm is larger than compute, excess is exposed
+        time = compute_tile + (self.num_tiles - 1) * net_tile + net_tile
+      else:
+        # Tcomm is smaller than compute and hidden, but it contributes to
+        # compute slowdown due part of compute resources orchestrating comm
+        time = compute_tile + (self.num_tiles - 1) * compute_tile + (
+          self.num_tiles - 1) * net_tile * self.net.processor_usage + \
+          net_tile
+    self.processing_time = time
+    return self.processing_time
+
 class BatchMatMul(Layer):
-  def __init__(self, name, batch, size_a, contraction_size, size_b,
+  def __init__(self, name, sys, batch, size_a, contraction_size, size_b,
                needs_recompute=False, activation_reused=False,
                activation_stored=True, output_stored=True):
     m, n, k = size_a, contraction_size, size_b
     super().__init__(name,
+                     sys,
                      fw_flops=batch*2*m*n*k,
                      agrad_flops=batch*2*2*m*n*k,
                      inputs_size=batch*(m*n+n*k),
@@ -330,10 +428,11 @@ class BatchMatMul(Layer):
 # https://kratzert.github.io/2016/02/12/understanding-the-gradient-flow-through-the-batch-normalization-layer.html
 # https://cthorey.github.io./blog/2016/backpropagation/
 class LayerNorm(Layer):
-  def __init__(self, name, act_size, hidden,
+  def __init__(self, name, sys, act_size, hidden,
                needs_recompute=False, activation_reused=False,
                activation_stored=True, output_stored=True):
     super().__init__(name,
+                     sys,
                      fw_flops=9*act_size,
                      agrad_flops=14*act_size,
                      wgrad_flops=7*act_size,
@@ -351,10 +450,11 @@ class LayerNorm(Layer):
 
 
 class DropOut(Layer):
-  def __init__(self, name, act_size,
+  def __init__(self, name, sys, act_size,
                needs_recompute=False, activation_reused=False,
                activation_stored=True, output_stored=True):
     super().__init__(name,
+                     sys,
                      fw_flops=act_size,
                      agrad_flops=act_size,
                      inputs_size=act_size,
@@ -388,7 +488,7 @@ class DropOut(Layer):
 
 # https://mlfromscratch.com/activation-functions-explained/#/
 class GeLU(Layer):
-  def __init__(self, name, act_size,
+  def __init__(self, name, sys, act_size,
                needs_recompute=False, activation_reused=False,
                activation_stored=True, output_stored=True,
                fused=False):
@@ -401,7 +501,7 @@ class GeLU(Layer):
     else:
       eff_act_space = act_size
       eff_act_grads = act_size
-    super().__init__(name, fw_flops=8*act_size, agrad_flops=13*act_size,
+    super().__init__(name, sys, fw_flops=8*act_size, agrad_flops=13*act_size,
                      inputs_size=act_size, output_size=act_size,
                      activation_space=eff_act_space,
                      activation_grads=eff_act_grads,
@@ -416,10 +516,11 @@ class GeLU(Layer):
 
 # https://automata88.medium.com/how-to-implement-the-softmax-derivative-independently-from-any-loss-function-ae6d44363a9d
 class SoftMax(Layer):
-  def __init__(self, name, act_size,
+  def __init__(self, name, sys, act_size,
                needs_recompute=False, activation_reused=False,
                activation_stored=True, output_stored=True):
     super().__init__(name,
+                     sys,
                      fw_flops=5*act_size,
                      agrad_flops=8*act_size,
                      inputs_size=act_size,
@@ -437,11 +538,12 @@ class SoftMax(Layer):
 
 # https://explained.ai/matrix-calculus/#sec:1.4.2
 class ElementWise(Layer):
-  def __init__(self, name, operand1, operand2,
+  def __init__(self, name, sys, operand1, operand2,
                needs_recompute=False, activation_reused=False,
                activation_stored=True, output_stored=True):
     act_size = max(operand1, operand2)
     super().__init__(name,
+                     sys,
                      fw_flops=act_size,
                      agrad_flops=(operand1+operand2),
                      inputs_size=(operand1+operand2),
@@ -456,11 +558,12 @@ class ElementWise(Layer):
 
 # Splits activation on the forward pass, sums gradients on the backward
 class Fork(Layer):
-  def __init__(self, name, act_size, num_users,
+  def __init__(self, name, sys, act_size, num_users,
                needs_recompute=False, activation_reused=False,
                activation_stored=True, output_stored=True):
     self.num_users = num_users
     super().__init__(name,
+                     sys,
                      inputs_size=act_size,
                      agrad_flops=num_users*act_size,
                      activation_space=act_size,
@@ -482,15 +585,17 @@ class Fork(Layer):
 
 
 class TPComm(Layer):
-  def __init__(self, name, act_size, comm_size,
-               split_comm=False, conjugate=False,
-               in_network_reduction=False,
+
+  def __init__(self, name, sys, act_size, net_id, num_peers, tensor_par_comm_type,
+               conjugate=False, in_network_reduction=False,
                needs_recompute=False, activation_reused=False,
                activation_stored=True, output_stored=True):
-    self.comm_size = comm_size
-    self.split_comm = split_comm
+    self.net = sys.get_network(net_id)
+    self.num_peers = num_peers
+    self.tensor_par_comm_type = tensor_par_comm_type
+    self.comm_size = act_size
     self.conjugate = conjugate
-    if self.comm_size == 1:
+    if self.num_peers == 1:
       fw_flops = 0
       bw_flops = 0
       in_size = 0
@@ -500,7 +605,7 @@ class TPComm(Layer):
         # FW pass Identity/AllGather, BW pass AllReduce/ReduceScatter
         fw_flops = 0
         if not in_network_reduction:
-          bw_flops = act_size * (self.comm_size - 1) / self.comm_size
+          bw_flops = act_size * (self.num_peers - 1) / self.num_peers
         else:
           bw_flops = 0
         in_size = act_size
@@ -508,14 +613,14 @@ class TPComm(Layer):
       else:
         # Conjugate function is opposite
         if not in_network_reduction:
-          fw_flops = act_size * (self.comm_size - 1) / self.comm_size
+          fw_flops = act_size * (self.num_peers - 1) / self.num_peers
         else:
           fw_flops = 0
         bw_flops = 0
         in_size = act_size
         out_size = act_size
-
     super().__init__(name,
+                     sys,
                      fw_flops=fw_flops,
                      agrad_flops=bw_flops,
                      inputs_size=in_size,
@@ -528,8 +633,8 @@ class TPComm(Layer):
                      output_stored=output_stored)
 
   def get_activation(self):
-    if self.split_comm:
-      return self.activation_space * self.bytes_per_element / self.comm_size
+    if self.tensor_par_comm_type == 'rs_ag':
+      return self.activation_space * self.bytes_per_element / self.num_peers
     else:
       if self.conjugate:
         return self.activation_space * self.bytes_per_element
@@ -538,15 +643,15 @@ class TPComm(Layer):
         return 0
 
   def get_fw_mem_accessed(self):
-    if not self.split_comm and not self.conjugate:
+    if not self.tensor_par_comm_type == 'rs_ag' and not self.conjugate:
       # Identity
       return 0
     else:
       return super().get_fw_mem_accessed()
 
   def get_activation_grad(self):
-    if self.split_comm:
-      return self.activation_space * self.bytes_per_element / self.comm_size
+    if self.tensor_par_comm_type == 'rs_ag':
+      return self.activation_space * self.bytes_per_element / self.num_peers
     else:
       if not self.conjugate:
         return self.activation_grads * self.bytes_per_element
@@ -555,8 +660,50 @@ class TPComm(Layer):
         return 0
 
   def get_agrad_mem_accessed(self):
-    if not self.split_comm and self.conjugate:
+    if not self.tensor_par_comm_type == 'rs_ag' and self.conjugate:
       # Identity
       return 0
     else:
       return super().get_agrad_mem_accessed()
+
+  def get_comm_bytes(self):
+    return self.comm_size * self.bytes_per_element
+
+  def compute_net_time(self, stage, baseblock=True):
+    if self.num_peers == 1:
+      return 0
+    split_comm = (self.tensor_par_comm_type == 'rs_ag') or (
+      (self.tensor_par_comm_type == 'p2p_rs_ag') and not baseblock)
+    if split_comm:
+      if self.conjugate:
+        # ReduceScatter case
+        fw_net_time = self.net.time('reduce_scatter',
+          self.get_comm_bytes(), self.num_peers)
+        bw_net_time = self.net.time('all_gather',
+          self.get_comm_bytes(), self.num_peers)
+      else:
+        #AllGather case
+        fw_net_time = self.net.time('all_gather',
+          self.get_comm_bytes(), self.num_peers)
+        bw_net_time = self.net.time('reduce_scatter',
+          self.get_comm_bytes(), self.num_peers)
+    else:
+      if self.conjugate:
+        fw_net_time = self.net.time('all_reduce',
+          self.get_comm_bytes(), self.num_peers)
+        bw_net_time = 0
+      else:
+        fw_net_time = 0
+        bw_net_time = self.net.time('all_reduce',
+          self.get_comm_bytes(), self.num_peers)
+    if stage == 'fw':
+      return fw_net_time
+    elif stage == 'agrad':
+      return bw_net_time
+    elif stage == 'wgrad':
+      return 0
+    elif stage == 'optim':
+      return 0
+    else:
+      raise Exception(f'Bad compute stage : {stage}')
+    return 0

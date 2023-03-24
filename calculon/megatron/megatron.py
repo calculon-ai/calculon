@@ -104,6 +104,9 @@ class Megatron:
       self.tensor_par_comm_type = cfg['tensor_par_comm_type']
       self.in_network_reduction = False
       assert self.tensor_par_comm_type in ['ar', 'p2p_rs_ag', 'rs_ag']
+      self.tensor_par_overlap = cfg['tensor_par_overlap']
+      if self.tensor_par_overlap:
+        assert self.tensor_par > 1, "We perform TP comm overlap with TP > 1"
       self._sequence_par = self.tensor_par_comm_type == 'rs_ag'
       self.seq_par_ag_redo = cfg['seq_par_ag_redo']
       if self.seq_par_ag_redo:
@@ -331,21 +334,29 @@ class Megatron:
     self._fw_mem_accessed = None
     self._fw_mem_time = None
     self._fw_time = None
+    self._baseblock_fw_tp_time = None
+    self._edgeblock_fw_tp_time = None
     self._re_flops = None
     self._re_flops_time = None
     self._re_mem_accessed = None
     self._re_mem_time = None
     self._re_time = None
+    self._baseblock_recomm_time = None
+    self._edgeblock_recomm_time = None
     self._agrad_flops = None
     self._agrad_flops_time = None
     self._agrad_mem_accessed = None
     self._agrad_mem_time = None
+    self._baseblock_agrad_tp_time = None
+    self._edgeblock_agrad_tp_time = None
     self._agrad_time = None
     self._wgrad_flops = None
     self._wgrad_flops_time = None
     self._wgrad_mem_accessed = None
     self._wgrad_mem_time = None
     self._wgrad_time = None
+    self._baseblock_wgrad_tp_time = None
+    self._edgeblock_wgrad_tp_time = None
     self._optim_flops = None
     self._optim_flops_time = None
     self._optim_mem_accessed = None
@@ -367,21 +378,29 @@ class Megatron:
     j['block_fw_mem_accessed'] = self._block_fw_mem_accessed
     j['block_fw_mem_time'] = self._block_fw_mem_time
     j['block_fw_time'] = self._block_fw_time
+    j['baseblock_fw_tp_time'] = self._baseblock_fw_tp_time
+    j['edgeblock_fw_tp_time'] = self._edgeblock_fw_tp_time
     j['block_re_flops'] = self._block_re_flops
     j['block_re_flops_time'] = self._block_re_flops_time
     j['block_re_mem_accessed'] = self._block_re_mem_accessed
     j['block_re_mem_time'] = self._block_re_mem_time
     j['block_re_time'] = self._block_re_time
+    j['baseblock_recomm_time'] = self._baseblock_recomm_time
+    j['edgeblock_recomm_time'] = self._edgeblock_recomm_time
     j['block_agrad_flops'] = self._block_agrad_flops
     j['block_agrad_flops_time'] = self._block_agrad_flops_time
     j['block_agrad_mem_accessed'] = self._block_agrad_mem_accessed
     j['block_agrad_mem_time'] = self._block_agrad_mem_time
     j['block_agrad_time'] = self._block_agrad_time
+    j['baseblock_agrad_tp_time'] = self._baseblock_agrad_tp_time
+    j['edgeblock_agrad_tp_time'] = self._edgeblock_agrad_tp_time
     j['block_wgrad_flops'] = self._block_wgrad_flops
     j['block_wgrad_flops_time'] = self._block_wgrad_flops_time
     j['block_wgrad_mem_accessed'] = self._block_wgrad_mem_accessed
     j['block_wgrad_mem_time'] = self._block_wgrad_mem_time
     j['block_wgrad_time'] = self._block_wgrad_time
+    j['baseblock_wgrad_tp_time'] = self._baseblock_wgrad_tp_time
+    j['edgeblock_wgrad_tp_time'] = self._edgeblock_wgrad_tp_time
     j['block_optim_flops'] = self._block_optim_flops
     j['block_optim_flops_time'] = self._block_optim_flops_time
     j['block_optim_mem_accessed'] = self._block_optim_mem_accessed
@@ -458,6 +477,7 @@ class Megatron:
 
     self._megatron_block.append(Fork(
       "AttnBlock_Fork",
+      self.sys,
       pick(self.exe._sequence_par, self._seq_par_activation_size,
            self._activation_size),
       2,
@@ -466,6 +486,7 @@ class Megatron:
       activation_stored=True))
     self._megatron_block.append(LayerNorm(
       "AttnBlock_LayerNorm",
+      self.sys,
       pick(self.exe._sequence_par, self._seq_par_activation_size,
            self._activation_size),
       self.app.hidden,
@@ -473,37 +494,32 @@ class Megatron:
       # Activation is stored in Fork instead
       activation_stored=False,
       activation_reused=True))
-    self._megatron_block.append(TPComm(
-      "AttnBlock_F",
-      self._activation_size,
-      self.exe.tensor_par,
-      # We only compute flops/mem analyzing this layers, comm analyzed later
-      # This is conservative estimate that does not consider p2p_rs_ag
-      # because we don't differentiate between edge and middle blocks here
-      split_comm=self.exe._sequence_par,
-      conjugate=False,
-      in_network_reduction=self.exe.in_network_reduction,
-      needs_recompute=recompute_ag_flag))
-    self._megatron_block.append(Fork(
-      "AttnBlock_Multihead_Fork",
-      self._activation_size,
-      3,
-      needs_recompute=recompute_ag_flag,
-      # With seq_par, we use activations from Comm layers to reflect that
-      # they're split, otherwise we keep full size activations
-      activation_stored=(not recompute_ag_flag)))
-    self._megatron_block.append(Linear(
-      "AttnBlock_Query",
-      self._batch_seq,
-      self.app.hidden,
-      self.app.attn_heads * self.app.attn_size // self.exe.tensor_par,
-      needs_recompute=recompute_flag,
-      # Activation is stored in Fork instead,
-      activation_stored=False,
-      activation_reused=True))
-    if self.exe.attention_type == 'multihead':
+    if not self.exe.tensor_par_overlap:
+      self._megatron_block.append(TPComm(
+        "AttnBlock_F",
+        self.sys,
+        self._activation_size,
+        self.exe.tensor_par_net,
+        self.exe.tensor_par,
+        # We only compute flops/mem analyzing this layers, comm analyzed later
+        # This is conservative estimate that does not consider p2p_rs_ag
+        # because we don't differentiate between edge and middle blocks here
+        tensor_par_comm_type=self.exe.tensor_par_comm_type,
+        conjugate=False,
+        in_network_reduction=self.exe.in_network_reduction,
+        needs_recompute=recompute_ag_flag))
+      self._megatron_block.append(Fork(
+        "AttnBlock_Multihead_Fork",
+        self.sys,
+        self._activation_size,
+        3,
+        needs_recompute=recompute_ag_flag,
+        # With seq_par, we use activations from Comm layers to reflect that
+        # they're split, otherwise we keep full size activations
+        activation_stored=(not recompute_ag_flag)))
       self._megatron_block.append(Linear(
-        "AttnBlock_Key",
+        "AttnBlock_Query",
+        self.sys,
         self._batch_seq,
         self.app.hidden,
         self.app.attn_heads * self.app.attn_size // self.exe.tensor_par,
@@ -511,40 +527,113 @@ class Megatron:
         # Activation is stored in Fork instead,
         activation_stored=False,
         activation_reused=True))
-      self._megatron_block.append(Linear(
-        "AttnBlock_Value",
-        self._batch_seq,
-        self.app.hidden,
-        self.app.attn_heads * self.app.attn_size // self.exe.tensor_par,
-        needs_recompute=recompute_flag,
-        # Activation is stored in Fork instead,
-        activation_stored=False,
-        activation_reused=True))
-    elif self.exe.attention_type == 'multiquery':
-      # Multiqueri attention uses the same K, V for all "heads" resulting in
-      # smaller Wk and Wv, less matmul, faster inference
-      self._megatron_block.append(Linear(
-        "AttnBlock_Key",
-        self._batch_seq,
-        self.app.hidden,
-        self.app.attn_size,
-        needs_recompute=recompute_flag,
-        # Activation is stored in Fork instead,
-        activation_stored=False,
-        activation_reused=True))
-      self._megatron_block.append(Linear(
-        "AttnBlock_Value",
-        self._batch_seq,
-        self.app.hidden,
-        self.app.attn_size,
-        needs_recompute=recompute_flag,
-        # Activation is stored in Fork instead,
-        activation_stored=False,
-        activation_reused=True))
+      if self.exe.attention_type == 'multihead':
+        self._megatron_block.append(Linear(
+          "AttnBlock_Key",
+          self.sys,
+          self._batch_seq,
+          self.app.hidden,
+          self.app.attn_heads * self.app.attn_size // self.exe.tensor_par,
+          needs_recompute=recompute_flag,
+          # Activation is stored in Fork instead,
+          activation_stored=False,
+          activation_reused=True))
+        self._megatron_block.append(Linear(
+          "AttnBlock_Value",
+          self.sys,
+          self._batch_seq,
+          self.app.hidden,
+          self.app.attn_heads * self.app.attn_size // self.exe.tensor_par,
+          needs_recompute=recompute_flag,
+          # Activation is stored in Fork instead,
+          activation_stored=False,
+          activation_reused=True))
+      elif self.exe.attention_type == 'multiquery':
+        # Multiqueri attention uses the same K, V for all "heads" resulting in
+        # smaller Wk and Wv, less matmul, faster inference
+        self._megatron_block.append(Linear(
+          "AttnBlock_Key",
+          self.sys,
+          self._batch_seq,
+          self.app.hidden,
+          self.app.attn_size,
+          needs_recompute=recompute_flag,
+          # Activation is stored in Fork instead,
+          activation_stored=False,
+          activation_reused=True))
+        self._megatron_block.append(Linear(
+          "AttnBlock_Value",
+          self.sys,
+          self._batch_seq,
+          self.app.hidden,
+          self.app.attn_size,
+          needs_recompute=recompute_flag,
+          # Activation is stored in Fork instead,
+          activation_stored=False,
+          activation_reused=True))
+      else:
+        raise self.Error('Wrong attention type', self.exe.attention_type)
     else:
-      raise self.Error('Wrong attention type', self.exe.attention_type)
+      if self.exe.attention_type == 'multihead':
+        self._megatron_block.append(LinearOverlapped(
+          "AttnBlock_QKV_AG",
+          self.sys,
+          self._batch_seq,
+          self.app.hidden,
+          self.app.hidden * 3,          # Queue, Key, Value ematrices combined
+          self.exe.tensor_par,
+          self.exe.tensor_par_net,
+          self.exe.tensor_par,
+          wgrad_ag_act=self.exe.seq_par_ag_redo,
+          conjugate=False,
+          needs_recompute=recompute_flag))
+      elif self.exe.attention_type == 'multiquery':
+        self._megatron_block.append(LinearOverlapped(
+          "AttnBlock_Query_AG",
+          self.sys,
+          self._batch_seq,
+          self.app.hidden,
+          self.app.attn_heads * self.app.attn_size,
+          self.exe.tensor_par,
+          self.exe.tensor_par_net,
+          self.exe.tensor_par,
+          wgrad_ag_act=self.exe.seq_par_ag_redo,
+          conjugate=False,
+          needs_recompute=recompute_flag))
+        self._megatron_block.append(Fork(
+          "AttnBlock_KV_Fork",
+          self.sys,
+          self._activation_size,
+          2,
+          needs_recompute=recompute_ag_flag,
+          # With seq_par, we use activations from Comm layers to reflect that
+          # they're split, otherwise we keep full size activations
+          activation_stored=(not recompute_ag_flag)))
+        self._megatron_block.append(Linear(
+          "AttnBlock_Key",
+          self.sys,
+          self._batch_seq,
+          self.app.hidden,
+          self.app.attn_size,
+          needs_recompute=recompute_flag,
+          # Activation is stored in Fork instead,
+          activation_stored=False,
+          activation_reused=True))
+        self._megatron_block.append(Linear(
+          "AttnBlock_Value",
+          self.sys,
+          self._batch_seq,
+          self.app.hidden,
+          self.app.attn_size,
+          needs_recompute=recompute_flag,
+          # Activation is stored in Fork instead,
+          activation_stored=False,
+          activation_reused=True))
+      else:
+        raise self.Error('Wrong attention type', self.exe.attention_type)
     self._megatron_block.append(BatchMatMul(
       "AttnBlock_Multihead_Key_Query",
+      self.sys,
       self.exe.microbatch_size * self.app.attn_heads // self.exe.tensor_par,
       self.app.seq_size,
       self.app.attn_size,
@@ -553,49 +642,70 @@ class Megatron:
       output_stored=(not recompute_attn_flag)))
     self._megatron_block.append(SoftMax(
       "AttnBlock_Multihead_SoftMax",
+      self.sys,
       self.app.attn_heads // self.exe.tensor_par * \
         self.app.seq_size**2 * self.exe.microbatch_size,
       needs_recompute=recompute_attn_flag,
       output_stored=(not recompute_attn_flag)))
     self._megatron_block.append(DropOut(
       "AttnBlock_Multihead_DropOut",
+      self.sys,
       self.app.attn_heads // self.exe.tensor_par * \
         self.app.seq_size**2 * self.exe.microbatch_size,
       needs_recompute=recompute_attn_flag,
       activation_stored=(not recompute_attn_flag)))
     self._megatron_block.append(BatchMatMul(
       "AttnBlock_Multihead_Attn",
+      self.sys,
       self.exe.microbatch_size * self.app.attn_heads // self.exe.tensor_par,
       self.app.seq_size,
       self.app.seq_size,
       self.app.attn_heads * self.app.attn_size // self.app.attn_heads,
       needs_recompute=recompute_flag))
-    self._megatron_block.append(Linear(
-      "AttnBlock_MLP",
-      self._batch_seq,
-      self.app.attn_heads * self.app.attn_size // self.exe.tensor_par,
-      self.app.hidden,
-      needs_recompute=recompute_flag))
-    self._megatron_block.append(TPComm(
-      "AttnBlock_G",
-      self._activation_size,
-      self.exe.tensor_par,
-      # We only compute flops/mem analyzing this layers, comm analyzed later
-      # This is conservative estimate that does not consider p2p_rs_ag
-      # because we don't differentiate between edge and middle blocks here
-      split_comm=self.exe._sequence_par,
-      conjugate=True,
-      in_network_reduction=self.exe.in_network_reduction,
-      needs_recompute=recompute_flag,
-      # We don't store input to RS/AR
-      activation_stored=False))
+    if not self.exe.tensor_par_overlap:
+      self._megatron_block.append(Linear(
+        "AttnBlock_MLP",
+        self.sys,
+        self._batch_seq,
+        self.app.attn_heads * self.app.attn_size // self.exe.tensor_par,
+        self.app.hidden,
+        needs_recompute=recompute_flag))
+      self._megatron_block.append(TPComm(
+        "AttnBlock_G",
+        self.sys,
+        self._activation_size,
+        self.exe.tensor_par_net,
+        self.exe.tensor_par,
+        # We only compute flops/mem analyzing this layers, comm analyzed later
+        # This is conservative estimate that does not consider p2p_rs_ag
+        # because we don't differentiate between edge and middle blocks here
+        tensor_par_comm_type=self.exe.tensor_par_comm_type,
+        conjugate=True,
+        in_network_reduction=self.exe.in_network_reduction,
+        needs_recompute=recompute_flag,
+        # We don't store input to RS/AR
+        activation_stored=False))
+    else:
+      self._megatron_block.append(LinearOverlapped(
+        "AttnBlock_MLP_RS",
+        self.sys,
+        self._batch_seq,
+        self.app.attn_heads * self.app.attn_size,
+        self.app.hidden,
+        self.exe.tensor_par,
+        self.exe.tensor_par_net,
+        self.exe.tensor_par,
+        conjugate=True,
+        needs_recompute=recompute_flag))
     self._megatron_block.append(DropOut(
       "AttnBlock_DropOut",
+      self.sys,
       pick(self.exe._sequence_par, self._seq_par_activation_size,
            self._activation_size),
       needs_recompute=recompute_flag))
     self._megatron_block.append(ElementWise(
       "AttnBlock_Residual",
+      self.sys,
       pick(self.exe._sequence_par, self._seq_par_activation_size,
            self._activation_size),
       pick(self.exe._sequence_par, self._seq_par_activation_size,
@@ -611,6 +721,7 @@ class Megatron:
 
     self._megatron_block.append(Fork(
       "MlpBlock_Fork",
+      self.sys,
       pick(self.exe._sequence_par, self._seq_par_activation_size,
            self._activation_size),
       2,
@@ -619,6 +730,7 @@ class Megatron:
       activation_stored=True))
     self._megatron_block.append(LayerNorm(
       "MlpBlock_LayerNorm",
+      self.sys,
       pick(self.exe._sequence_par, self._seq_par_activation_size,
            self._activation_size),
       self.app.hidden,
@@ -626,59 +738,95 @@ class Megatron:
       # Activation is stored in Fork instead
       activation_stored=False,
       activation_reused=True))
-    self._megatron_block.append(TPComm(
-      "MlpBlock_F",
-      # We only do compute/mem analyzing this layers, comm analyzed later
-      # We keep extra mem buffer for comm, consider full tensor mem access
-      # to be consistent with how much data comm moves/touches
-      # This is conservative estimate that does not consider p2p_rs_ag
-      # because we don't differentiate between edge and middle blocks here
-      self._activation_size,
-      self.exe.tensor_par,
-      split_comm=self.exe._sequence_par,
-      conjugate=False,
-      in_network_reduction=self.exe.in_network_reduction,
-      needs_recompute=recompute_ag_flag))
-    self._megatron_block.append(Linear(
-      "MlpBlock_Mlp1",
-      self._batch_seq,
-      self.app.hidden,
-      self.app.feedforward // self.exe.tensor_par,
-      needs_recompute=recompute_flag,
-      # With seq_par, we use activations from Comm layers to reflect that
-      # they're split, otherwise we keep full size activations
-      activation_stored=(not recompute_ag_flag)))
+    if not self.exe.tensor_par_overlap:
+      self._megatron_block.append(TPComm(
+        "MlpBlock_F",
+        self.sys,
+        # We only do compute/mem analyzing this layers, comm analyzed later
+        # We keep extra mem buffer for comm, consider full tensor mem access
+        # to be consistent with how much data comm moves/touches
+        # This is conservative estimate that does not consider p2p_rs_ag
+        # because we don't differentiate between edge and middle blocks here
+        self._activation_size,
+        self.exe.tensor_par_net,
+        self.exe.tensor_par,
+        tensor_par_comm_type=self.exe.tensor_par_comm_type,
+        conjugate=False,
+        in_network_reduction=self.exe.in_network_reduction,
+        needs_recompute=recompute_ag_flag))
+      self._megatron_block.append(Linear(
+        "MlpBlock_Mlp1",
+        self.sys,
+        self._batch_seq,
+        self.app.hidden,
+        self.app.feedforward // self.exe.tensor_par,
+        needs_recompute=recompute_flag,
+        # With seq_par, we use activations from Comm layers to reflect that
+        # they're split, otherwise we keep full size activations
+        activation_stored=(not recompute_ag_flag)))
+    else:
+      self._megatron_block.append(LinearOverlapped(
+        "MlpBlock_Mlp1_AG",
+        self.sys,
+        self._batch_seq,
+        self.app.hidden,
+        self.app.feedforward,
+        self.exe.tensor_par,
+        self.exe.tensor_par_net,
+        self.exe.tensor_par,
+        wgrad_ag_act=self.exe.seq_par_ag_redo,
+        conjugate=False,
+        needs_recompute=recompute_flag))
     self._megatron_block.append(GeLU(
       "MlpBlock_GeLU",
+      self.sys,
       self.app.feedforward * self._batch_seq // self.exe.tensor_par,
       needs_recompute=recompute_flag,
       fused=self.exe.fused_activation))
-    self._megatron_block.append(Linear(
-      "MlpBlock_Mlp2",
-      self._batch_seq,
-      self.app.feedforward // self.exe.tensor_par,
-      self.app.hidden,
-      needs_recompute=recompute_flag))
-    self._megatron_block.append(TPComm(
-      "MlpBlock_G",
-      self._activation_size,
-      self.exe.tensor_par,
-      # We only compute flops/mem analyzing this layers, comm analyzed later
-      # This is conservative estimate that does not consider p2p_rs_ag
-      # because we don't differentiate between edge and middle blocks here
-      split_comm=self.exe._sequence_par,
-      conjugate=True,
-      in_network_reduction=self.exe.in_network_reduction,
-      needs_recompute=recompute_flag,
-      # We don't store input to RS/AR
-      activation_stored=False))
+    if not self.exe.tensor_par_overlap:
+      self._megatron_block.append(Linear(
+        "MlpBlock_Mlp2",
+        self.sys,
+        self._batch_seq,
+        self.app.feedforward // self.exe.tensor_par,
+        self.app.hidden,
+        needs_recompute=recompute_flag))
+      self._megatron_block.append(TPComm(
+        "MlpBlock_G",
+        self.sys,
+        self._activation_size,
+        self.exe.tensor_par_net,
+        self.exe.tensor_par,
+        # We only compute flops/mem analyzing this layers, comm analyzed later
+        # This is conservative estimate that does not consider p2p_rs_ag
+        # because we don't differentiate between edge and middle blocks here
+        tensor_par_comm_type=self.exe.tensor_par_comm_type,
+        conjugate=True,
+        in_network_reduction=self.exe.in_network_reduction,
+        needs_recompute=recompute_flag,
+        # We don't store input to RS/AR
+        activation_stored=False))
+    else:
+      self._megatron_block.append(LinearOverlapped(
+        "MlpBlock_Mlp2_RS",
+        self.sys,
+        self._batch_seq,
+        self.app.feedforward,
+        self.app.hidden,
+        self.exe.tensor_par,
+        self.exe.tensor_par_net,
+        self.exe.tensor_par,
+        conjugate=True,
+        needs_recompute=recompute_flag))
     self._megatron_block.append(DropOut(
       "MlpBlock_DropOut",
+      self.sys,
       pick(self.exe._sequence_par, self._seq_par_activation_size,
            self._activation_size),
       needs_recompute=recompute_flag))
     self._megatron_block.append(ElementWise(
       "MlpBlock_Residual",
+      self.sys,
       pick(self.exe._sequence_par, self._seq_par_activation_size,
            self._activation_size),
       pick(self.exe._sequence_par, self._seq_par_activation_size,
@@ -688,10 +836,13 @@ class Megatron:
       activation_stored=False,
       activation_reused=True))
 
-  def compile(self, exe):
+  def compile(self, sys, exe):
     assert not self._compiled
     assert isinstance(exe, self.Execution)
     self.exe = exe
+    assert isinstance(sys, System)
+    self.sys = sys
+    self._check_network_assignments()
 
     # If we have number of blocks not divisible by PP, we can allocate the
     # reminder of the blocks on the first num_block % PP Procs and block
@@ -802,6 +953,8 @@ class Megatron:
     self._block_fw_mem_accessed = 0
     self._block_fw_mem_time = 0
     self._block_fw_time = 0
+    self._baseblock_fw_tp_time = 0
+    self._edgeblock_fw_tp_time = 0
     self._block_weight_space = 0
     self._block_act_working_space = 0
     self._block_act_storage_space = 0
@@ -811,16 +964,22 @@ class Megatron:
     self._block_re_mem_accessed = 0
     self._block_re_mem_time = 0
     self._block_re_time = 0
+    self._baseblock_recomm_time = 0
+    self._edgeblock_recomm_time = 0
     self._block_agrad_flops = 0
     self._block_agrad_flops_time = 0
     self._block_agrad_mem_accessed = 0
     self._block_agrad_mem_time = 0
     self._block_agrad_time = 0
+    self._baseblock_agrad_tp_time = 0
+    self._edgeblock_agrad_tp_time = 0
     self._block_wgrad_flops = 0
     self._block_wgrad_flops_time = 0
     self._block_wgrad_mem_accessed = 0
     self._block_wgrad_mem_time = 0
     self._block_wgrad_time = 0
+    self._baseblock_wgrad_tp_time = 0
+    self._edgeblock_wgrad_tp_time = 0
     self._block_optim_flops = 0
     self._block_optim_flops_time = 0
     self._block_optim_mem_accessed = 0
@@ -835,39 +994,48 @@ class Megatron:
     for layer in self._megatron_block:
       # Add flops/bytes/times per layer
       self._block_fw_flops += layer.get_fw_flops()
-      self._block_fw_flops_time += layer.compute_flops_time(self.sys, "fw")
+      self._block_fw_flops_time += layer.compute_flops_time("fw")
       self._block_fw_mem_accessed += layer.get_fw_mem_accessed()
-      self._block_fw_mem_time += layer.compute_mem_time(self.sys, "fw")
-      self._block_fw_time += layer.compute_processing_time(self.sys, "fw")
+      self._block_fw_mem_time += layer.compute_mem_time("fw")
+      self._block_fw_time += layer.compute_processing_time("fw")
+      self._baseblock_fw_tp_time += layer.compute_net_time("fw",
+        baseblock=True)
+      self._edgeblock_fw_tp_time += layer.compute_net_time("fw",
+        baseblock=False)
       if self.exe.training:
         if layer.get_recompute_flag():
           self._block_re_flops += self._block_fw_flops
           self._block_re_flops_time += self._block_fw_flops_time
           self._block_re_mem_accessed += self._block_fw_mem_accessed
           self._block_re_mem_time += self._block_fw_mem_time
-          self._block_re_time += layer.compute_processing_time(self.sys, "fw")
+          self._block_re_time += layer.compute_processing_time("fw")
+          self._baseblock_recomm_time += layer.compute_net_time("fw",
+            baseblock=True)
+          self._edgeblock_recomm_time += layer.compute_net_time("fw",
+            baseblock=False)
         self._block_agrad_flops += layer.get_agrad_flops()
-        self._block_agrad_flops_time += layer.compute_flops_time(
-          self.sys, "agrad")
+        self._block_agrad_flops_time += layer.compute_flops_time("agrad")
         self._block_agrad_mem_accessed += layer.get_agrad_mem_accessed()
-        self._block_agrad_mem_time += layer.compute_mem_time(self.sys, "agrad")
-        self._block_agrad_time += layer.compute_processing_time(
-          self.sys, "agrad")
+        self._block_agrad_mem_time += layer.compute_mem_time("agrad")
+        self._block_agrad_time += layer.compute_processing_time("agrad")
+        self._baseblock_agrad_tp_time += layer.compute_net_time("agrad",
+          baseblock=True)
+        self._edgeblock_agrad_tp_time += layer.compute_net_time("agrad",
+          baseblock=False)
         self._block_wgrad_flops += layer.get_wgrad_flops()
-        self._block_wgrad_flops_time += layer.compute_flops_time(
-          self.sys, "wgrad")
+        self._block_wgrad_flops_time += layer.compute_flops_time("wgrad")
         self._block_wgrad_mem_accessed += layer.get_wgrad_mem_accessed()
-        self._block_wgrad_mem_time += layer.compute_mem_time(self.sys, "wgrad")
-        self._block_wgrad_time += layer.compute_processing_time(
-          self.sys, "wgrad")
+        self._block_wgrad_mem_time += layer.compute_mem_time("wgrad")
+        self._block_wgrad_time += layer.compute_processing_time("wgrad")
+        self._baseblock_wgrad_tp_time += layer.compute_net_time("wgrad",
+          baseblock=True)
+        self._edgeblock_wgrad_tp_time += layer.compute_net_time("wgrad",
+          baseblock=False)
         self._block_optim_flops += layer.get_optim_step_flops()
-        self._block_optim_flops_time += layer.compute_flops_time(
-          self.sys, "optim")
+        self._block_optim_flops_time += layer.compute_flops_time("optim")
         self._block_optim_mem_accessed += layer.get_optim_step_mem_accessed()
-        self._block_optim_mem_time += layer.compute_mem_time(
-          self.sys, "optim")
-        self._block_optim_time += layer.compute_processing_time(
-          self.sys, "optim")
+        self._block_optim_mem_time += layer.compute_mem_time("optim")
+        self._block_optim_time += layer.compute_processing_time("optim")
 
       # Accumulate space requirements per block
       self._block_weight_space += layer.get_weight()
@@ -904,7 +1072,7 @@ class Megatron:
       self.log.debug("%s %s %s", layer.name, 'FW mem:',
                      human_format(layer.get_fw_mem_accessed(), 'bytes'))
       self.log.debug("%s %s %.3e", layer.name, 'FW time:',
-                     layer.compute_processing_time(self.sys, "fw"))
+                     layer.compute_processing_time("fw"))
       self.log.debug("%s %s %s", layer.name, 'BW flops:',
                      human_format(
                       layer.get_agrad_flops() + layer.get_wgrad_flops(),
@@ -920,8 +1088,8 @@ class Megatron:
                       layer.get_agrad_mem_accessed() +
                       layer.get_wgrad_mem_accessed(), 'bytes'))
       self.log.debug("%s %s %.3e", layer.name, 'BW time:',
-                     layer.compute_processing_time(self.sys, "agrad") +
-                     layer.compute_processing_time(self.sys, "wgrad"))
+                     layer.compute_processing_time("agrad") +
+                     layer.compute_processing_time("wgrad"))
       self.log.debug("%s %s %s", layer.name, 'Optim flops:',
                      human_format(layer.get_optim_step_flops(), 'flops'))
       self.log.debug("%s %s %s", layer.name, 'BW Optimizer size:',
@@ -929,7 +1097,7 @@ class Megatron:
       self.log.debug("%s %s %s", layer.name, 'Optim mem:',
                      human_format(layer.get_optim_step_mem_accessed(), 'bytes'))
       self.log.debug("%s %s %.3e", layer.name, 'Optim time:',
-                     layer.compute_processing_time(self.sys, "optim"))
+                     layer.compute_processing_time("optim"))
       self.log.debug("%s %s %.3e", layer.name, 'Recompute:',
                      layer.get_recompute_flag())
       self.log.debug("%s %s %s", layer.name, 'Recompute mem saving:',
@@ -961,21 +1129,6 @@ class Megatron:
     if self.exe.activation_recompute == 'full':
       self._block_act_storage_space = 0
 
-    # Megatron has 2 communication operations per block when using tensor
-    # parallelism
-    if self.exe.tensor_par > 1:
-      self._block_tp_comm_count = 2
-    else:
-      self._block_tp_comm_count = 0
-
-    # Sets the TP communication operation size.
-    # Note: this is for a single operation but there are two F/G comm
-    # instructions in each block.
-    if self.exe.tensor_par > 1:
-      self._block_fw_tp_size = self._activation_size * self._bytes_per_element
-    else:
-      self._block_fw_tp_size = 0
-
     # Sets the PP communication operation size
     if self.exe.pipeline_par > 1:
       if self.exe._pipeline_par_rs_ag:
@@ -987,36 +1140,24 @@ class Megatron:
     else:
       self._block_fw_pp_size = 0
 
-    # Sets the recommunication operation size
-    if self.exe.training:
-      if self.exe.activation_recompute == "full":
-        self._block_recomm_size = self._block_fw_tp_size
-      elif self.exe.seq_par_ag_redo:
-        # only works when recompute is attn_only or none with seq_par
-        self._block_recomm_size = self._block_fw_tp_size
-      else:
-        self._block_recomm_size = 0
-    else:
-      self._block_recomm_size = 0
-
     # When training, BW sizes for TP and PP are same as FW
     if self.exe.training:
-      self._block_bw_tp_size = self._block_fw_tp_size
+    #  self._block_bw_tp_size = self._block_fw_tp_size
       self._block_bw_pp_size = self._block_fw_pp_size
     else:
-      self._block_bw_tp_size = 0
+    #  self._block_bw_tp_size = 0
       self._block_bw_pp_size = 0
 
-    self.log.debug("%s %s", 'TP comm FW size:',
-                   human_format(self._block_fw_tp_size, 'bytes'))
+    #self.log.debug("%s %s", 'TP comm FW size:',
+    #               human_format(self._block_fw_tp_size, 'bytes'))
     self.log.debug("%s %s", 'PP comm FW size:',
                    human_format(self._block_fw_pp_size, 'bytes'))
-    self.log.debug("%s %s", 'TP comm BW size:',
-                   human_format(self._block_bw_tp_size, 'bytes'))
+    #self.log.debug("%s %s", 'TP comm BW size:',
+    #               human_format(self._block_bw_tp_size, 'bytes'))
     self.log.debug("%s %s", 'PP comm BW size:',
                    human_format(self._block_bw_pp_size, 'bytes'))
-    self.log.debug("%s %s", 'TP recomm size:',
-                   human_format(self._block_recomm_size, 'bytes'))
+    #self.log.debug("%s %s", 'TP recomm size:',
+    #               human_format(self._block_recomm_size, 'bytes'))
 
   def _compute_batch_stats(self):
     """
@@ -1051,94 +1192,18 @@ class Megatron:
     self._optim_mem_time = mult * self._block_optim_mem_time
     self._optim_time = mult * self._block_optim_time
 
-    # Recommunication is caused by activation recomputation in
-    # "full" mode. It is always 2 AllReduce operations
-    # We consider full activation recomputation to start with the full
-    # activation checkpoint  (not distributed across TP nodes)
-    # TODO(misaev): think if we want to introduce act_cp_sharding optimization
-    if self.exe.training and self.exe.tensor_par > 1:
-      if self.exe.activation_recompute == 'full':
-        if self.exe._sequence_par:
-          block_recomm_time = self._block_tp_comm_count * (
-            self._tp_net.time(
-              'reduce_scatter', self._block_recomm_size, self.exe.tensor_par) +
-            self._tp_net.time(
-              'all_gather', self._block_recomm_size, self.exe.tensor_par))
-        else:
-          block_recomm_time = self._block_tp_comm_count * self._tp_net.time(
-            'all_reduce', self._block_recomm_size, self.exe.tensor_par)
-      elif self.exe.seq_par_ag_redo:
-        block_recomm_time = self._block_tp_comm_count * self._tp_net.time(
-          'all_gather', self._block_recomm_size, self.exe.tensor_par)
-      else:
-        block_recomm_time = 0
-    else:
-      block_recomm_time = 0
-
-    # Computes TP communication times base and edge blocks, split into FW and BW
-    if self.exe.tensor_par > 1:
-      if self.exe._sequence_par:
-        baseblock_fw_tp_time = self._block_tp_comm_count * (
-          self._tp_net.time(
-            'reduce_scatter', self._block_fw_tp_size, self.exe.tensor_par) +
-          self._tp_net.time(
-            'all_gather', self._block_fw_tp_size, self.exe.tensor_par))
-      else:
-        baseblock_fw_tp_time = self._block_tp_comm_count * (
-          self._tp_net.time(
-            'all_reduce', self._block_fw_tp_size, self.exe.tensor_par))
-      if self.exe._pipeline_par_rs_ag:
-        edgeblock_fw_tp_time = self._block_tp_comm_count * (
-          self._tp_net.time(
-            'reduce_scatter', self._block_fw_tp_size, self.exe.tensor_par) +
-          self._tp_net.time(
-            'all_gather', self._block_fw_tp_size, self.exe.tensor_par))
-      else:
-        edgeblock_fw_tp_time = self._block_tp_comm_count * (
-          self._tp_net.time(
-            'all_reduce', self._block_fw_tp_size, self.exe.tensor_par))
-      if self.exe.training:
-        if self.exe._sequence_par:
-          baseblock_bw_tp_time = self._block_tp_comm_count * (
-            self._tp_net.time(
-              'reduce_scatter', self._block_bw_tp_size, self.exe.tensor_par) +
-            self._tp_net.time(
-              'all_gather', self._block_bw_tp_size, self.exe.tensor_par))
-        else:
-          baseblock_bw_tp_time = self._block_tp_comm_count * (
-            self._tp_net.time(
-              'all_reduce', self._block_bw_tp_size, self.exe.tensor_par))
-        if self.exe._pipeline_par_rs_ag:
-          edgeblock_bw_tp_time = self._block_tp_comm_count * (
-            self._tp_net.time(
-              'reduce_scatter', self._block_bw_tp_size, self.exe.tensor_par) +
-            self._tp_net.time(
-              'all_gather', self._block_bw_tp_size, self.exe.tensor_par))
-        else:
-          edgeblock_bw_tp_time = self._block_tp_comm_count * (
-            self._tp_net.time(
-              'all_reduce', self._block_bw_tp_size, self.exe.tensor_par))
-          assert edgeblock_bw_tp_time == edgeblock_fw_tp_time and \
-            baseblock_bw_tp_time == baseblock_fw_tp_time, \
-          "We expect TP communication time is the same during FW and BW passes"
-      else:
-        baseblock_bw_tp_time = 0
-        edgeblock_bw_tp_time = 0
-    else:
-      baseblock_fw_tp_time = 0
-      edgeblock_fw_tp_time = 0
-      baseblock_bw_tp_time = 0
-      edgeblock_bw_tp_time = 0
-
     # These TP numbers are for total times for all blocks in all chunks
     tp_fw_comm_time = self.exe._num_microbatches * self._chunks_per_proc * (
-      (self._baseblocks_per_chunk * baseblock_fw_tp_time) +
-      (self._edgeblocks_per_chunk * edgeblock_fw_tp_time))
+      (self._baseblocks_per_chunk * self._baseblock_fw_tp_time) +
+      (self._edgeblocks_per_chunk * self._edgeblock_fw_tp_time))
     tp_bw_comm_time = self.exe._num_microbatches * self._chunks_per_proc * (
-      (self._baseblocks_per_chunk * baseblock_bw_tp_time) +
-      (self._edgeblocks_per_chunk * edgeblock_bw_tp_time))
+      self._baseblocks_per_chunk * (
+        self._baseblock_agrad_tp_time + self._baseblock_wgrad_tp_time) +
+      self._edgeblocks_per_chunk * (
+        self._edgeblock_agrad_tp_time + self._edgeblock_wgrad_tp_time))
     tp_recomm_time = self.exe._num_microbatches * self._chunks_per_proc * (
-      self._blocks_per_chunk * block_recomm_time)
+      (self._baseblocks_per_chunk * self._baseblock_recomm_time) +
+      (self._edgeblocks_per_chunk * self._edgeblock_recomm_time))
 
     # Per chunk PP comm time
     chunk_fw_pp_time = self._pp_net.time('p2p', self._block_fw_pp_size, 2)
@@ -1167,11 +1232,15 @@ class Megatron:
     self._recomm_time = tp_recomm_time
     self._pp_comm_time = pp_fw_comm_time + pp_bw_comm_time
 
-    self.log.debug("%s %s", 'TP comm baseblock FW time:', baseblock_fw_tp_time)
-    self.log.debug("%s %s", 'TP comm edgeblock FW time:', edgeblock_fw_tp_time)
+    self.log.debug("%s %s", 'TP comm baseblock FW time:',
+      self._baseblock_fw_tp_time)
+    self.log.debug("%s %s", 'TP comm edgeblock FW time:',
+      self._edgeblock_fw_tp_time)
     self.log.debug("%s %s", 'TP comm FW time:', tp_fw_comm_time)
-    self.log.debug("%s %s", 'TP comm baseblock BW time:', baseblock_bw_tp_time)
-    self.log.debug("%s %s", 'TP comm edgeblock BW time:', edgeblock_bw_tp_time)
+    self.log.debug("%s %s", 'TP comm baseblock BW time:',
+      self._baseblock_agrad_tp_time + self._baseblock_wgrad_tp_time)
+    self.log.debug("%s %s", 'TP comm edgeblock BW time:',
+      self._edgeblock_agrad_tp_time + self._edgeblock_wgrad_tp_time)
     self.log.debug("%s %s", 'PP comm chunk FW time:', chunk_fw_pp_time)
     self.log.debug("%s %s", 'PP comm chunk BW time:', chunk_bw_pp_time)
     self.log.debug("%s %s", 'TP comm BW time:', tp_bw_comm_time)
@@ -1184,9 +1253,9 @@ class Megatron:
     # FW and BW passes, TP and PP communication for FW and BW passes
     # With full interleaving, we only need microbatch_time x (p-1) x Tcycle time
     self._baseblock_fw_time_no_offload = (
-      self._block_fw_time + baseblock_fw_tp_time)
+      self._block_fw_time + self._baseblock_fw_tp_time)
     self._edgeblock_fw_time_no_offload = (
-      self._block_fw_time + edgeblock_fw_tp_time + chunk_fw_pp_time)
+      self._block_fw_time + self._edgeblock_fw_tp_time + chunk_fw_pp_time)
     self._baseblock_fw_offload_overhead = max(
       0, self.get_fw_offload_time() + self._block_fw_mem_time -
       self._baseblock_fw_time_no_offload)
@@ -1199,12 +1268,16 @@ class Megatron:
       self._edgeblock_fw_time_no_offload + self._edgeblock_fw_offload_overhead)
     # When we consider block BW time, we add optimizer step to it
     self._baseblock_bw_time_no_offload = (
-      self._block_re_time + block_recomm_time + self._block_agrad_time +
-      self._block_wgrad_time + self._block_optim_time + baseblock_bw_tp_time)
+      self._block_re_time + self._baseblock_recomm_time +
+      self._block_agrad_time + self._block_wgrad_time +
+      self._block_optim_time +
+      self._baseblock_agrad_tp_time + self._baseblock_wgrad_tp_time)
     self._edgeblock_bw_time_no_offload = (
-      self._block_re_time + block_recomm_time + self._block_agrad_time +
-      self._block_wgrad_time + self._block_optim_time +
-      edgeblock_bw_tp_time + chunk_bw_pp_time)
+      self._block_re_time + self._edgeblock_recomm_time +
+      self._block_agrad_time + self._block_wgrad_time +
+      self._block_optim_time +
+      self._edgeblock_agrad_tp_time + self._edgeblock_wgrad_tp_time +
+      chunk_bw_pp_time)
     self._baseblock_bw_offload_overhead = max(
       0, self.get_bw_offload_time() + self._block_agrad_mem_time +
       self._block_wgrad_mem_time + self._block_optim_mem_time -
@@ -1243,8 +1316,10 @@ class Megatron:
       block_dp_compute_time += self._block_optim_flops_time
     if self._dp_net == self._tp_net:
       # Can't overlap DP with TP if in the same network
-      baseblock_dp_overlap_time -= baseblock_bw_tp_time + block_recomm_time
-      edgeblock_dp_overlap_time -= edgeblock_bw_tp_time + block_recomm_time
+      baseblock_dp_overlap_time -= (self._baseblock_recomm_time +
+        self._baseblock_agrad_tp_time + self._baseblock_wgrad_tp_time)
+      edgeblock_dp_overlap_time -= (self._edgeblock_recomm_time +
+        self._edgeblock_agrad_tp_time + self._edgeblock_wgrad_tp_time)
     chunk_dp_overlap_time = (
       self._baseblocks_per_chunk * baseblock_dp_overlap_time +
       self._edgeblocks_per_chunk * edgeblock_dp_overlap_time)
@@ -1287,7 +1362,10 @@ class Megatron:
     self.log.debug("%s %s", 'Edgeblock FW time:', self._edgeblock_fw_time)
     self.log.debug("%s %s", 'With FW offload overhead time:',
       self._edgeblock_fw_offload_overhead)
-    self.log.debug("%s %s", 'Block REcomm time:', block_recomm_time)
+    self.log.debug("%s %s", 'Baseblock REcomm time:',
+      self._baseblock_recomm_time)
+    self.log.debug("%s %s", 'Edgeblock REcomm time:',
+      self._edgeblock_recomm_time)
     self.log.debug("%s %s", 'Block RE time:', self._block_re_time)
     self.log.debug("%s %s", 'Block BW Agrad time:', self._block_agrad_time)
     self.log.debug("%s %s", 'Block BW Wgrad time:', self._block_wgrad_time)
@@ -1569,8 +1647,6 @@ class Megatron:
     assert self._compiled, "You must first call self.compile()"
     assert not self._executed
     assert isinstance(sys, System)
-    self.sys = sys
-    self._check_network_assignments()
     self._compute_block_stats()
     self._compute_batch_stats()
     self._check_mem_caps()

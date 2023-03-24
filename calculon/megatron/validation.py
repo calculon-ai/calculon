@@ -128,7 +128,7 @@ class Validation(calculon.CommandLine):
         with open(exe_file, 'r') as fd:
           exe = Megatron.Execution(json.load(fd))
         mt = Megatron(app, logger)
-        mt.compile(exe)
+        mt.compile(syst, exe)
         mt.run(syst)
         stats = mt.get_stats_json()
         data[model][mode]['profile_gib'] = get_profile(model, mode)
@@ -246,7 +246,7 @@ class Validation(calculon.CommandLine):
         with open(exe_file, 'r') as fd:
           exe = Megatron.Execution(json.load(fd))
         mt = Megatron(app, logger)
-        mt.compile(exe)
+        mt.compile(syst, exe)
         mt.run(syst)
         stats = mt.get_stats_json()
         raw[model][mode] = stats['act_space'] + stats['act_checkpoint_size']
@@ -333,7 +333,7 @@ class Validation(calculon.CommandLine):
         with open(exe_file, 'r') as fd:
           exe = Megatron.Execution(json.load(fd))
         mt = Megatron(app, logger)
-        mt.compile(exe)
+        mt.compile(syst, exe)
         mt.run(syst)
         stats = mt.get_stats_json()
         data[model][mode]['profile_time'] = get_profile(model, mode)

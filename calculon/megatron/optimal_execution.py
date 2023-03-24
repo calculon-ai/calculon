@@ -88,6 +88,7 @@ def search(debug, num_procs, max_batch_size, app, syst, tp, pp):
                               'pipeline_interleaving': ppint,
                               'optimizer_sharding': optimizer_sharding,
                               'tensor_par_comm_type': tensor_par_comm_type,
+                              'tensor_par_overlap': False,
                               'seq_par_ag_redo': seq_par_ag_redo,
                               'data_par_overlap': data_par_overlap,
                               'weight_offload': weight_offload,
@@ -100,7 +101,9 @@ def search(debug, num_procs, max_batch_size, app, syst, tp, pp):
                               try:
                                 logger = logging.Logger('sub')
                                 model = Megatron(app, logger)
-                                model.compile(Megatron.Execution(exe_json))
+                                model.compile(
+                                  syst,
+                                  Megatron.Execution(exe_json))
                                 model.run(syst)
                                 stats = model.get_stats_json()
                                 good_exe_count += 1

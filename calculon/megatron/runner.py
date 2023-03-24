@@ -55,7 +55,7 @@ class Runner(calculon.CommandLine):
 
     try:
       model = Megatron(app, logger)
-      model.compile(exe)
+      model.compile(syst, exe)
       model.run(syst)
     except Megatron.Error as error:
       print(f'ERROR: {error}')
