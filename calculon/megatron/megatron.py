@@ -336,6 +336,8 @@ class Megatron:
     self._fw_time = None
     self._baseblock_fw_tp_time = None
     self._edgeblock_fw_tp_time = None
+    self._baseblock_fw_tp_time_exposed = None
+    self._edgeblock_fw_tp_time_exposed = None
     self._re_flops = None
     self._re_flops_time = None
     self._re_mem_accessed = None
@@ -343,12 +345,16 @@ class Megatron:
     self._re_time = None
     self._baseblock_recomm_time = None
     self._edgeblock_recomm_time = None
+    self._baseblock_recomm_time_exposed = None
+    self._edgeblock_recomm_time_exposed = None
     self._agrad_flops = None
     self._agrad_flops_time = None
     self._agrad_mem_accessed = None
     self._agrad_mem_time = None
     self._baseblock_agrad_tp_time = None
     self._edgeblock_agrad_tp_time = None
+    self._baseblock_agrad_tp_time_exposed = None
+    self._edgeblock_agrad_tp_time_exposed = None
     self._agrad_time = None
     self._wgrad_flops = None
     self._wgrad_flops_time = None
@@ -357,6 +363,8 @@ class Megatron:
     self._wgrad_time = None
     self._baseblock_wgrad_tp_time = None
     self._edgeblock_wgrad_tp_time = None
+    self._baseblock_wgrad_tp_time_exposed = None
+    self._edgeblock_wgrad_tp_time_exposed = None
     self._optim_flops = None
     self._optim_flops_time = None
     self._optim_mem_accessed = None
@@ -364,10 +372,14 @@ class Megatron:
     self._optim_time = None
 
     # Top level network stats
-    self._tp_comm_time = None
-    self._recomm_time = None
-    self._pp_comm_time = None
-    self._dp_comm_time = None
+    self._tp_comm_time_exposed = None
+    self._tp_comm_time_link = None
+    self._recomm_time_exposed = None
+    self._recomm_time_link = None
+    self._pp_comm_time_exposed = None
+    self._pp_comm_time_link = None
+    self._dp_comm_time_exposed = None
+    self._dp_comm_time_link = None
     self._bubble_time = None
 
   def get_stats_json(self):
@@ -380,6 +392,8 @@ class Megatron:
     j['block_fw_time'] = self._block_fw_time
     j['baseblock_fw_tp_time'] = self._baseblock_fw_tp_time
     j['edgeblock_fw_tp_time'] = self._edgeblock_fw_tp_time
+    j['baseblock_fw_tp_time_exposed'] = self._baseblock_fw_tp_time_exposed
+    j['edgeblock_fw_tp_time_exposed'] = self._edgeblock_fw_tp_time_exposed
     j['block_re_flops'] = self._block_re_flops
     j['block_re_flops_time'] = self._block_re_flops_time
     j['block_re_mem_accessed'] = self._block_re_mem_accessed
@@ -387,6 +401,8 @@ class Megatron:
     j['block_re_time'] = self._block_re_time
     j['baseblock_recomm_time'] = self._baseblock_recomm_time
     j['edgeblock_recomm_time'] = self._edgeblock_recomm_time
+    j['baseblock_recomm_time_exposed'] = self._baseblock_recomm_time_exposed
+    j['edgeblock_recomm_time_exposed'] = self._edgeblock_recomm_time_exposed
     j['block_agrad_flops'] = self._block_agrad_flops
     j['block_agrad_flops_time'] = self._block_agrad_flops_time
     j['block_agrad_mem_accessed'] = self._block_agrad_mem_accessed
@@ -394,6 +410,8 @@ class Megatron:
     j['block_agrad_time'] = self._block_agrad_time
     j['baseblock_agrad_tp_time'] = self._baseblock_agrad_tp_time
     j['edgeblock_agrad_tp_time'] = self._edgeblock_agrad_tp_time
+    j['baseblock_agrad_tp_time_exposed'] = self._baseblock_agrad_tp_time_exposed
+    j['edgeblock_agrad_tp_time_exposed'] = self._edgeblock_agrad_tp_time_exposed
     j['block_wgrad_flops'] = self._block_wgrad_flops
     j['block_wgrad_flops_time'] = self._block_wgrad_flops_time
     j['block_wgrad_mem_accessed'] = self._block_wgrad_mem_accessed
@@ -401,6 +419,8 @@ class Megatron:
     j['block_wgrad_time'] = self._block_wgrad_time
     j['baseblock_wgrad_tp_time'] = self._baseblock_wgrad_tp_time
     j['edgeblock_wgrad_tp_time'] = self._edgeblock_wgrad_tp_time
+    j['baseblock_wgrad_tp_time_exposed'] = self._baseblock_wgrad_tp_time_exposed
+    j['edgeblock_wgrad_tp_time_exposed'] = self._edgeblock_wgrad_tp_time_exposed
     j['block_optim_flops'] = self._block_optim_flops
     j['block_optim_flops_time'] = self._block_optim_flops_time
     j['block_optim_mem_accessed'] = self._block_optim_mem_accessed
@@ -435,11 +455,15 @@ class Megatron:
     j['bw_time'] = self.get_bw_time()
     j['optim_step_time'] = self.get_optim_step_time()
     j['recompute_time'] = self.get_recompute_time()
-    j['recomm_time'] = self.get_recomm_time()
+    j['recomm_link_time'] = self.get_recomm_link_time()
+    j['recomm_exposed_time'] = self.get_recomm_exposed_time()
     j['bubble_time'] = self.get_bubble_time()
-    j['tp_comm_time'] = self.get_tp_comm_time()
-    j['pp_comm_time'] = self.get_pp_comm_time()
-    j['dp_exposed_comm_time'] = self.get_dp_comm_time()
+    j['tp_comm_link_time'] = self.get_tp_comm_link_time()
+    j['pp_comm_link_time'] = self.get_pp_comm_link_time()
+    j['dp_comm_link_time'] = self.get_dp_comm_link_time()
+    j['tp_comm_exposed_time'] = self.get_tp_comm_exposed_time()
+    j['pp_comm_exposed_time'] = self.get_pp_comm_exposed_time()
+    j['dp_comm_exposed_time'] = self.get_dp_comm_exposed_time()
     j['fw_offload_exposed_time'] = self.get_fw_offload_overhead()
     j['bw_offload_exposed_time'] = self.get_bw_offload_overhead()
     j['total_time'] = self.get_total_time()
@@ -580,7 +604,8 @@ class Megatron:
           self.sys,
           self._batch_seq,
           self.app.hidden,
-          self.app.hidden * 3,          # Queue, Key, Value ematrices combined
+          self.app.attn_heads * self.app.attn_size *3,          # Q, K, V
+          self.exe.tensor_par_comm_type,
           self.exe.tensor_par,
           self.exe.tensor_par_net,
           self.exe.tensor_par,
@@ -594,6 +619,7 @@ class Megatron:
           self._batch_seq,
           self.app.hidden,
           self.app.attn_heads * self.app.attn_size,
+          self.exe.tensor_par_comm_type,
           self.exe.tensor_par,
           self.exe.tensor_par_net,
           self.exe.tensor_par,
@@ -692,6 +718,7 @@ class Megatron:
         self._batch_seq,
         self.app.attn_heads * self.app.attn_size,
         self.app.hidden,
+        self.exe.tensor_par_comm_type,
         self.exe.tensor_par,
         self.exe.tensor_par_net,
         self.exe.tensor_par,
@@ -771,6 +798,7 @@ class Megatron:
         self._batch_seq,
         self.app.hidden,
         self.app.feedforward,
+        self.exe.tensor_par_comm_type,
         self.exe.tensor_par,
         self.exe.tensor_par_net,
         self.exe.tensor_par,
@@ -813,6 +841,7 @@ class Megatron:
         self._batch_seq,
         self.app.feedforward,
         self.app.hidden,
+        self.exe.tensor_par_comm_type,
         self.exe.tensor_par,
         self.exe.tensor_par_net,
         self.exe.tensor_par,
@@ -955,6 +984,8 @@ class Megatron:
     self._block_fw_time = 0
     self._baseblock_fw_tp_time = 0
     self._edgeblock_fw_tp_time = 0
+    self._baseblock_fw_tp_time_exposed = 0
+    self._edgeblock_fw_tp_time_exposed = 0
     self._block_weight_space = 0
     self._block_act_working_space = 0
     self._block_act_storage_space = 0
@@ -966,6 +997,8 @@ class Megatron:
     self._block_re_time = 0
     self._baseblock_recomm_time = 0
     self._edgeblock_recomm_time = 0
+    self._baseblock_recomm_time_exposed = 0
+    self._edgeblock_recomm_time_exposed = 0
     self._block_agrad_flops = 0
     self._block_agrad_flops_time = 0
     self._block_agrad_mem_accessed = 0
@@ -973,6 +1006,8 @@ class Megatron:
     self._block_agrad_time = 0
     self._baseblock_agrad_tp_time = 0
     self._edgeblock_agrad_tp_time = 0
+    self._baseblock_agrad_tp_time_exposed = 0
+    self._edgeblock_agrad_tp_time_exposed = 0
     self._block_wgrad_flops = 0
     self._block_wgrad_flops_time = 0
     self._block_wgrad_mem_accessed = 0
@@ -980,6 +1015,8 @@ class Megatron:
     self._block_wgrad_time = 0
     self._baseblock_wgrad_tp_time = 0
     self._edgeblock_wgrad_tp_time = 0
+    self._baseblock_wgrad_tp_time_exposed = 0
+    self._edgeblock_wgrad_tp_time_exposed = 0
     self._block_optim_flops = 0
     self._block_optim_flops_time = 0
     self._block_optim_mem_accessed = 0
@@ -1002,6 +1039,10 @@ class Megatron:
         baseblock=True)
       self._edgeblock_fw_tp_time += layer.compute_net_time("fw",
         baseblock=False)
+      self._baseblock_fw_tp_time_exposed += layer.get_exposed_net_time("fw",
+        baseblock=True)
+      self._edgeblock_fw_tp_time_exposed += layer.get_exposed_net_time("fw",
+        baseblock=False)
       if self.exe.training:
         if layer.get_recompute_flag():
           self._block_re_flops += self._block_fw_flops
@@ -1013,6 +1054,10 @@ class Megatron:
             baseblock=True)
           self._edgeblock_recomm_time += layer.compute_net_time("fw",
             baseblock=False)
+          self._baseblock_recomm_time_exposed += layer.get_exposed_net_time(
+            "fw", baseblock=True)
+          self._edgeblock_recomm_time_exposed += layer.get_exposed_net_time(
+            "fw", baseblock=False)
         self._block_agrad_flops += layer.get_agrad_flops()
         self._block_agrad_flops_time += layer.compute_flops_time("agrad")
         self._block_agrad_mem_accessed += layer.get_agrad_mem_accessed()
@@ -1022,6 +1067,10 @@ class Megatron:
           baseblock=True)
         self._edgeblock_agrad_tp_time += layer.compute_net_time("agrad",
           baseblock=False)
+        self._baseblock_agrad_tp_time_exposed += layer.get_exposed_net_time(
+          "agrad", baseblock=True)
+        self._edgeblock_agrad_tp_time_exposed += layer.get_exposed_net_time(
+          "agrad", baseblock=False)
         self._block_wgrad_flops += layer.get_wgrad_flops()
         self._block_wgrad_flops_time += layer.compute_flops_time("wgrad")
         self._block_wgrad_mem_accessed += layer.get_wgrad_mem_accessed()
@@ -1031,6 +1080,10 @@ class Megatron:
           baseblock=True)
         self._edgeblock_wgrad_tp_time += layer.compute_net_time("wgrad",
           baseblock=False)
+        self._baseblock_wgrad_tp_time_exposed += layer.get_exposed_net_time(
+          "wgrad", baseblock=True)
+        self._edgeblock_wgrad_tp_time_exposed += layer.get_exposed_net_time(
+          "wgrad", baseblock=False)
         self._block_optim_flops += layer.get_optim_step_flops()
         self._block_optim_flops_time += layer.compute_flops_time("optim")
         self._block_optim_mem_accessed += layer.get_optim_step_mem_accessed()
@@ -1073,6 +1126,8 @@ class Megatron:
                      human_format(layer.get_fw_mem_accessed(), 'bytes'))
       self.log.debug("%s %s %.3e", layer.name, 'FW time:',
                      layer.compute_processing_time("fw"))
+      self.log.debug("%s %s %.3e", layer.name, 'FW net exposed time:',
+                     layer.get_exposed_net_time("fw"))
       self.log.debug("%s %s %s", layer.name, 'BW flops:',
                      human_format(
                       layer.get_agrad_flops() + layer.get_wgrad_flops(),
@@ -1090,6 +1145,9 @@ class Megatron:
       self.log.debug("%s %s %.3e", layer.name, 'BW time:',
                      layer.compute_processing_time("agrad") +
                      layer.compute_processing_time("wgrad"))
+      self.log.debug("%s %s %.3e", layer.name, 'BW net exposed time:',
+                     layer.get_exposed_net_time("agrad") +
+                     layer.get_exposed_net_time("wgrad"))
       self.log.debug("%s %s %s", layer.name, 'Optim flops:',
                      human_format(layer.get_optim_step_flops(), 'flops'))
       self.log.debug("%s %s %s", layer.name, 'BW Optimizer size:',
@@ -1196,14 +1254,30 @@ class Megatron:
     tp_fw_comm_time = self.exe._num_microbatches * self._chunks_per_proc * (
       (self._baseblocks_per_chunk * self._baseblock_fw_tp_time) +
       (self._edgeblocks_per_chunk * self._edgeblock_fw_tp_time))
+    tp_fw_comm_time_exposed = \
+      self.exe._num_microbatches * self._chunks_per_proc * (
+        (self._baseblocks_per_chunk * self._baseblock_fw_tp_time_exposed) +
+        (self._edgeblocks_per_chunk * self._edgeblock_fw_tp_time_exposed))
     tp_bw_comm_time = self.exe._num_microbatches * self._chunks_per_proc * (
       self._baseblocks_per_chunk * (
         self._baseblock_agrad_tp_time + self._baseblock_wgrad_tp_time) +
       self._edgeblocks_per_chunk * (
         self._edgeblock_agrad_tp_time + self._edgeblock_wgrad_tp_time))
+    tp_bw_comm_time_exposed = \
+      self.exe._num_microbatches * self._chunks_per_proc * (
+        self._baseblocks_per_chunk * (
+          self._baseblock_agrad_tp_time_exposed + 
+          self._baseblock_wgrad_tp_time_exposed) +
+        self._edgeblocks_per_chunk * (
+          self._edgeblock_agrad_tp_time_exposed + 
+          self._edgeblock_wgrad_tp_time_exposed))
     tp_recomm_time = self.exe._num_microbatches * self._chunks_per_proc * (
       (self._baseblocks_per_chunk * self._baseblock_recomm_time) +
       (self._edgeblocks_per_chunk * self._edgeblock_recomm_time))
+    tp_recomm_time_exposed = \
+      self.exe._num_microbatches * self._chunks_per_proc * (
+        (self._baseblocks_per_chunk * self._baseblock_recomm_time_exposed) +
+        (self._edgeblocks_per_chunk * self._edgeblock_recomm_time_exposed))
 
     # Per chunk PP comm time
     chunk_fw_pp_time = self._pp_net.time('p2p', self._block_fw_pp_size, 2)
@@ -1228,22 +1302,39 @@ class Megatron:
       chunk_bw_pp_time
 
     # Aggregrates metrics
-    self._tp_comm_time = tp_fw_comm_time + tp_bw_comm_time
-    self._recomm_time = tp_recomm_time
-    self._pp_comm_time = pp_fw_comm_time + pp_bw_comm_time
+    self._tp_comm_time_link = tp_fw_comm_time + tp_bw_comm_time
+    self._tp_comm_time_exposed = (tp_fw_comm_time_exposed +
+      tp_bw_comm_time_exposed)
+    self._recomm_time_link = tp_recomm_time
+    self._recomm_time_exposed = tp_recomm_time_exposed
+    self._pp_comm_time_link = pp_fw_comm_time + pp_bw_comm_time
+    self._pp_comm_time_exposed = self._pp_comm_time_link
 
     self.log.debug("%s %s", 'TP comm baseblock FW time:',
       self._baseblock_fw_tp_time)
     self.log.debug("%s %s", 'TP comm edgeblock FW time:',
       self._edgeblock_fw_tp_time)
     self.log.debug("%s %s", 'TP comm FW time:', tp_fw_comm_time)
+    self.log.debug("%s %s", 'TP comm baseblock FW exposed time:',
+      self._baseblock_fw_tp_time_exposed)
+    self.log.debug("%s %s", 'TP comm edgeblock FW exposed time:',
+      self._edgeblock_fw_tp_time_exposed)
+    self.log.debug("%s %s", 'TP comm FW exposed time:', tp_fw_comm_time_exposed)
     self.log.debug("%s %s", 'TP comm baseblock BW time:',
       self._baseblock_agrad_tp_time + self._baseblock_wgrad_tp_time)
     self.log.debug("%s %s", 'TP comm edgeblock BW time:',
       self._edgeblock_agrad_tp_time + self._edgeblock_wgrad_tp_time)
+    self.log.debug("%s %s", 'TP comm BW time:', tp_bw_comm_time)
+    self.log.debug("%s %s", 'TP comm baseblock BW exposed time:',
+      self._baseblock_agrad_tp_time_exposed +
+      self._baseblock_wgrad_tp_time_exposed)
+    self.log.debug("%s %s", 'TP comm edgeblock BW exposed time:',
+      self._edgeblock_agrad_tp_time_exposed +
+      self._edgeblock_wgrad_tp_time_exposed)
+    self.log.debug("%s %s", 'TP comm BW exposed time:',
+      tp_bw_comm_time_exposed)
     self.log.debug("%s %s", 'PP comm chunk FW time:', chunk_fw_pp_time)
     self.log.debug("%s %s", 'PP comm chunk BW time:', chunk_bw_pp_time)
-    self.log.debug("%s %s", 'TP comm BW time:', tp_bw_comm_time)
     self.log.debug("%s %s", 'PP comm FW time:', pp_fw_comm_time)
     self.log.debug("%s %s", 'PP comm BW time:', pp_bw_comm_time)
 
@@ -1253,9 +1344,10 @@ class Megatron:
     # FW and BW passes, TP and PP communication for FW and BW passes
     # With full interleaving, we only need microbatch_time x (p-1) x Tcycle time
     self._baseblock_fw_time_no_offload = (
-      self._block_fw_time + self._baseblock_fw_tp_time)
+      self._block_fw_time + self._baseblock_fw_tp_time_exposed)
     self._edgeblock_fw_time_no_offload = (
-      self._block_fw_time + self._edgeblock_fw_tp_time + chunk_fw_pp_time)
+      self._block_fw_time + self._edgeblock_fw_tp_time_exposed +
+      chunk_fw_pp_time)
     self._baseblock_fw_offload_overhead = max(
       0, self.get_fw_offload_time() + self._block_fw_mem_time -
       self._baseblock_fw_time_no_offload)
@@ -1268,12 +1360,12 @@ class Megatron:
       self._edgeblock_fw_time_no_offload + self._edgeblock_fw_offload_overhead)
     # When we consider block BW time, we add optimizer step to it
     self._baseblock_bw_time_no_offload = (
-      self._block_re_time + self._baseblock_recomm_time +
+      self._block_re_time + self._baseblock_recomm_time_exposed +
       self._block_agrad_time + self._block_wgrad_time +
       self._block_optim_time +
       self._baseblock_agrad_tp_time + self._baseblock_wgrad_tp_time)
     self._edgeblock_bw_time_no_offload = (
-      self._block_re_time + self._edgeblock_recomm_time +
+      self._block_re_time + self._edgeblock_recomm_time_exposed +
       self._block_agrad_time + self._block_wgrad_time +
       self._block_optim_time +
       self._edgeblock_agrad_tp_time + self._edgeblock_wgrad_tp_time +
@@ -1362,10 +1454,10 @@ class Megatron:
     self.log.debug("%s %s", 'Edgeblock FW time:', self._edgeblock_fw_time)
     self.log.debug("%s %s", 'With FW offload overhead time:',
       self._edgeblock_fw_offload_overhead)
-    self.log.debug("%s %s", 'Baseblock REcomm time:',
-      self._baseblock_recomm_time)
-    self.log.debug("%s %s", 'Edgeblock REcomm time:',
-      self._edgeblock_recomm_time)
+    self.log.debug("%s %s", 'Baseblock REcomm exposed time:',
+      self._baseblock_recomm_time_exposed)
+    self.log.debug("%s %s", 'Edgeblock REcomm exposed time:',
+      self._edgeblock_recomm_time_exposed)
     self.log.debug("%s %s", 'Block RE time:', self._block_re_time)
     self.log.debug("%s %s", 'Block BW Agrad time:', self._block_agrad_time)
     self.log.debug("%s %s", 'Block BW Wgrad time:', self._block_wgrad_time)
@@ -1479,7 +1571,8 @@ class Megatron:
             self._block_dp_time * self._dp_net.processor_usage
         exposed_time = \
           overlappable_chunks_exposed_time + last_chunk_exposed_time
-        self._dp_comm_time = self._block_dp_time + exposed_time
+        self._dp_comm_time_exposed = self._block_dp_time + exposed_time
+        self._dp_comm_time_link = self._blocks_per_proc * self._block_dp_time
         self.log.debug('Blocks per chunk: %d', self._blocks_per_chunk)
         self.log.debug('Num overlappable chunks: %d', num_overlappable_chunks)
         self.log.debug('Last chunk size: %d', last_chunk_overlap_size)
@@ -1488,15 +1581,17 @@ class Megatron:
           overlap_window))
         self.log.debug('Last chunk exposed time: %.3e', last_chunk_exposed_time)
       else:
-        self._dp_comm_time = self._blocks_per_proc * self._block_dp_time
+        self._dp_comm_time_exposed = self._blocks_per_proc * self._block_dp_time
+        self._dp_comm_time_link = self._dp_comm_time_exposed
     else:
-      self._dp_comm_time = 0
+      self._dp_comm_time_exposed = 0
+      self._dp_comm_time_link = 0
     self.log.debug('Chunk FW time: %.3e', chunk_fw_time)
     self.log.debug('Chunk BW time: %.3e', chunk_bw_time)
     self.log.debug('Chunk BW time for DP overlap: %.3e', chunk_dp_overlap_time)
-    self.log.debug('DP comm time exposed: %.3e', self._dp_comm_time)
+    self.log.debug('DP comm time exposed: %.3e', self._dp_comm_time_exposed)
     self.log.debug('DP comm time on the link: %.3e',
-                   self._blocks_per_proc * self._block_dp_time)
+                   self._dp_comm_time_link)
 
     # memory capacity stats
     self._weight_space = self._block_weight_space * self._blocks_per_proc
@@ -1580,11 +1675,14 @@ class Megatron:
 
   def _misc_sanity_checks(self):
     if self.exe.tensor_par == 1:
-      assert self.get_tp_comm_time() == 0
+      assert self.get_tp_comm_exposed_time() == 0
+      assert self.get_tp_comm_link_time() == 0
     if self.exe.pipeline_par == 1:
-      assert self.get_pp_comm_time() == 0
+      assert self.get_pp_comm_exposed_time() == 0
+      assert self.get_pp_comm_link_time() == 0
     if self.exe.data_par == 1:
-      assert self.get_dp_comm_time() == 0
+      assert self.get_dp_comm_exposed_time() == 0
+      assert self.get_dp_comm_link_time() == 0
 
     assert self._fw_flops >= self._block_fw_flops
     assert self._fw_flops_time >= self._block_fw_flops_time
@@ -1626,7 +1724,8 @@ class Megatron:
       assert self.get_bw_offload_time() == 0
       assert self.get_recompute_time() == 0
       assert self.get_act_checkpoint_size() == 0
-      assert self.get_dp_comm_time() == 0
+      assert self.get_dp_comm_exposed_time() == 0
+      assert self.get_dp_comm_link_time() == 0
     else:
       # when training, backward is performed
       assert self.get_bw_time() > 0
@@ -1717,24 +1816,42 @@ class Megatron:
   def get_recompute_time(self):
     return self._re_time
 
-  def get_recomm_time(self):
+  def get_recomm_exposed_time(self):
     if self.exe.training:
-      return self._recomm_time
+      return self._recomm_time_exposed
+    else:
+      return 0
+
+  def get_recomm_link_time(self):
+    if self.exe.training:
+      return self._recomm_time_link
     else:
       return 0
 
   def get_bubble_time(self):
     return self._bubble_time
 
-  def get_tp_comm_time(self):
-    return self._tp_comm_time
+  def get_tp_comm_exposed_time(self):
+    return self._tp_comm_time_exposed
 
-  def get_pp_comm_time(self):
-    return self._pp_comm_time
+  def get_pp_comm_exposed_time(self):
+    return self._pp_comm_time_exposed
 
-  def get_dp_comm_time(self):
+  def get_dp_comm_exposed_time(self):
     if self.exe.training:
-      return self._dp_comm_time
+      return self._dp_comm_time_exposed
+    else:
+      return 0
+
+  def get_tp_comm_link_time(self):
+    return self._tp_comm_time_link
+
+  def get_pp_comm_link_time(self):
+    return self._pp_comm_time_link
+
+  def get_dp_comm_link_time(self):
+    if self.exe.training:
+      return self._dp_comm_time_link
     else:
       return 0
 
@@ -1751,11 +1868,11 @@ class Megatron:
     time += self.get_fw_offload_overhead()
     time += self.get_bw_offload_overhead()
     time += self.get_recompute_time()
-    time += self.get_recomm_time()
+    time += self.get_recomm_exposed_time()
     time += self.get_bubble_time()
-    time += self.get_tp_comm_time()
-    time += self.get_pp_comm_time()
-    time += self.get_dp_comm_time()
+    time += self.get_tp_comm_exposed_time()
+    time += self.get_pp_comm_exposed_time()
+    time += self.get_dp_comm_exposed_time()
     return time
 
   def get_useful_flops(self):
@@ -1941,11 +2058,14 @@ class Megatron:
       f"Batch FW offload overhead: {self.get_fw_offload_overhead():.4f};\n" \
       f"Batch BW offload overhead: {self.get_bw_offload_overhead():.4f};\n" \
       f"Batch recompute overhead: {self.get_recompute_time():.4f};\n" \
-      f"Batch recomm overhead: {self.get_recomm_time():.4f};\n" \
+      f"Batch recomm overhead: {self.get_recomm_exposed_time():.4f};\n" \
       f"Batch bubble overhead: {self.get_bubble_time():.4f};\n" \
-      f"Batch TP comm time: {self.get_tp_comm_time():.4f};\n" \
-      f"Batch PP comm time: {self.get_pp_comm_time():.4f};\n" \
-      f"Batch DP comm overhead: {self.get_dp_comm_time():.4f};\n" \
+      f"Batch TP comm overhead: {self.get_tp_comm_exposed_time():.4f};\n" \
+      f"Batch PP comm overhead: {self.get_pp_comm_exposed_time():.4f};\n" \
+      f"Batch DP comm overhead: {self.get_dp_comm_exposed_time():.4f};\n" \
+      f"Batch TP comm time on link: {self.get_tp_comm_link_time():.4f};\n" \
+      f"Batch PP comm time on link: {self.get_pp_comm_link_time():.4f};\n" \
+      f"Batch DP comm time on link: {self.get_dp_comm_link_time():.4f};\n" \
       f"Batch total time: {self.get_total_time():.4f};\n" \
       f"Activation offload required BW: " \
       f"{human_format(self.get_act_offload_bw_req(), 'bandwidth')};\n" \

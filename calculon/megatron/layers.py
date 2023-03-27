@@ -55,6 +55,7 @@ class Layer:
     # parameter count, setting bytes_per_element to 1
     self.bytes_per_element = 1
     self.processing_time = None
+    self.net_exposed_time = None
 
   def get_stats_json(self):
     return {
@@ -275,6 +276,9 @@ class Layer:
   def compute_net_time(self, stage, baseblock=True):
     return 0
 
+  def get_exposed_net_time(self, stage, baseblock=True):
+    return 0
+
   def compute_processing_time(self, stage):
     self.processing_time =  self.sys.get_processing_time(
       self.compute_flops_time(stage),
@@ -310,18 +314,53 @@ class Linear(Layer):
     return True
 
 class LinearOverlapped(Layer):
-  def __init__(self, name, sys, batch_seq, c_in, c_out,
+  def __init__(self, name, sys, batch_seq, c_in, c_out, tensor_par_comm_type,
                num_tiles, net_id, num_peers, wgrad_ag_act=False,
                conjugate=False, in_network_reduction=False,
                needs_recompute=False, activation_reused=False,
                activation_stored=True, output_stored=True):
     m, n, k = batch_seq, c_in, c_out
+    self.tensor_par_comm_type = tensor_par_comm_type
     self.num_tiles = num_tiles
     self.net = sys.get_network(net_id)
     self.num_peers = num_peers
     self.wgrad_ag_act = wgrad_ag_act
     self.conjugate = conjugate
     self.in_network_reduction = in_network_reduction
+    if self.tensor_par_comm_type == 'rs_ag':
+      if not conjugate:
+        #AllGather case
+        assert k % self.num_peers == 0
+        # assert m % self.num_peers == 0         # this should be true for seq_par
+        k = k // self.num_peers
+        act_space = m * n // num_tiles
+        act_grad_space = m * k
+        act_net_buffer = m * n // num_tiles
+        act_grad_net_buffer = 0
+      else:
+        # ReduceScatter case
+        assert n % self.num_peers == 0
+        # assert m % self.num_peers == 0         # this should be true for seq_par
+        n = n // self.num_peers
+        act_space = m * n
+        act_grad_space = m * k // num_tiles
+        act_net_buffer = 0
+        act_grad_net_buffer = m * k // num_tiles
+        #act_net_buffer = m * k // num_tiles
+    else:
+      if not conjugate:
+        # AllReduce case
+        act_space = m * n
+        act_grad_space = 0
+        act_net_buffer = m * n // num_tiles
+        act_grad_net_buffer = 0
+      else:
+        # Identityy case
+        act_space = 0
+        act_grad_space = m * k
+        act_net_buffer = 0
+        act_grad_net_buffer = m * k
+
     super().__init__(name,
                      sys,
                      fw_flops=2*m*n*k,
@@ -331,8 +370,8 @@ class LinearOverlapped(Layer):
                      output_size=m*k,
                      weight_space=n*k,
                      weight_grads=n*k,
-                     activation_space=m*n,
-                     activation_grads=m*k,
+                     activation_space=act_space, # + act_net_buffer,
+                     activation_grads=act_grad_space + act_grad_net_buffer,
                      optim_space=2*n*k,
                      needs_recompute=needs_recompute,
                      activation_reused=activation_reused,
@@ -342,25 +381,48 @@ class LinearOverlapped(Layer):
   def use_matrix_engine(self):
     return True
 
+  def get_comm_bytes(self):
+    if self.conjugate:
+      comm_size = self.output_size * self.bytes_per_element
+    else:
+      comm_size = self.inputs_size * self.bytes_per_element
+    return comm_size
+
   def compute_net_time(self, stage, baseblock=True):
     if self.num_peers == 1:
       return 0
+    split_comm = (self.tensor_par_comm_type == 'rs_ag') or (
+      (self.tensor_par_comm_type == 'p2p_rs_ag') and not baseblock)
     if self.conjugate:
-      # ReduceScatter case
-      comm_size = self.output_size
-      fw_net_time = self.net.time('reduce_scatter', comm_size, self.num_peers)
+      if split_comm:
+        # ReduceScatter case
+        fw_net_time = self.net.time('reduce_scatter',
+          self.get_comm_bytes(), self.num_peers)
+        bw_net_time = self.net.time('all_gather',
+          self.get_comm_bytes(), self.num_peers)
+      else:
+        #AllReduce case
+        fw_net_time = self.net.time('all_reduce',
+          self.get_comm_bytes(), self.num_peers)
+        bw_net_time = 0
       if not self.in_network_reduction:
-        fw_flops = comm_size * (self.num_peers - 1) / self.num_peers
-        fw_net_time += self.sys.get_vector_throughput(fw_flops)
-      bw_net_time = self.net.time('all_gather', comm_size, self.num_peers)
+        fw_flops = self.get_comm_bytes() * (self.num_peers - 1) / self.num_peers
+        fw_net_time += fw_flops / self.sys.get_vector_throughput(fw_flops)
     else:
-      #AllGather case
-      comm_size = self.inputs_size
-      fw_net_time = self.net.time('all_gather', comm_size, self.num_peers)
-      bw_net_time = self.net.time('reduce_scatter', comm_size, self.num_peers)
+      if split_comm:
+        #AllGather case
+        fw_net_time = self.net.time('all_gather',
+          self.get_comm_bytes(), self.num_peers)
+        bw_net_time = self.net.time('reduce_scatter',
+          self.get_comm_bytes(), self.num_peers)
+      else:
+        # Identityy case
+        fw_net_time = 0
+        bw_net_time = self.net.time('all_reduce',
+          self.get_comm_bytes(), self.num_peers)
       if not self.in_network_reduction:
-        bw_flops = comm_size * (self.num_peers - 1) / self.num_peers
-        bw_net_time += self.sys.get_vector_throughput(bw_flops)
+        bw_flops = self.get_comm_bytes() * (self.num_peers - 1) / self.num_peers
+        bw_net_time += bw_flops / self.sys.get_vector_throughput(bw_flops)
     if stage == 'fw':
       return fw_net_time
     if stage == 'agrad':
@@ -382,6 +444,7 @@ class LinearOverlapped(Layer):
     compute_time = self.sys.get_processing_time(flop_time, mem_time)
     if net_time == 0:
       time = compute_time
+      net_exposed_time = 0
     else:
       compute_time_slowed = self.sys.get_processing_time(
         flop_time_slowed, mem_time)
@@ -395,14 +458,22 @@ class LinearOverlapped(Layer):
       if overlap_inflection > 0:
         # Tcomm is larger than compute, excess is exposed
         time = compute_tile + (self.num_tiles - 1) * net_tile + net_tile
+        net_exposed_time = time - (self.num_tiles - 1) * flop_tile_slowed
       else:
         # Tcomm is smaller than compute and hidden, but it contributes to
         # compute slowdown due part of compute resources orchestrating comm
         time = compute_tile + (self.num_tiles - 1) * compute_tile + (
           self.num_tiles - 1) * net_tile * self.net.processor_usage + \
           net_tile
-    self.processing_time = time
+        net_exposed_time = net_tile + (
+          self.num_tiles - 1) * net_tile * self.net.processor_usage
+    self.processing_time = time - net_exposed_time
+    self.net_exposed_time = net_exposed_time
     return self.processing_time
+
+  def get_exposed_net_time(self, stage, baseblock=True):
+    # only use after calling compute_processing_time(), otherwise it's set witth None
+    return self.net_exposed_time
 
 class BatchMatMul(Layer):
   def __init__(self, name, sys, batch, size_a, contraction_size, size_b,

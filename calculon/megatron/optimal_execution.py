@@ -59,63 +59,64 @@ def search(debug, num_procs, max_batch_size, app, syst, tp, pp):
                                             activation_recompute)
             for seq_par_ag_redo in pick(can_redo, [True, False], [False]):
               for data_par_overlap in pick(dp>1, [True, False], [False]):
-                for weight_offload in pick(has_mem2, [True, False], [False]):
-                  if activation_recompute == 'full' or not has_mem2:
-                    activations_offloads = [False]
-                  else:
-                    activations_offloads = [True, False]
-                  for activations_offload in activations_offloads:
-                    for optimizer_offload in pick(has_mem2, [True, False],
-                                                  [False]):
-                      for tn in pick(tp>1, range(num_nets), [0]):
-                        for pn in pick(pp>1, range(num_nets), [0]):
-                          for dn in pick(dp>1, range(num_nets), [0]):
-                            exe_count += 1
-                            exe_json = {
-                              'num_procs': num_procs,
-                              'tensor_par': tp,
-                              'pipeline_par': pp,
-                              'data_par': dp,
-                              'tensor_par_net': tn,
-                              'pipeline_par_net': pn,
-                              'data_par_net': dn,
-                              'batch_size': batch_size,
-                              'microbatch_size': microbatch_size,
-                              'datatype': 'bfloat16',
-                              'fused_activation': True,
-                              'attention_type': 'multihead',
-                              'activation_recompute': activation_recompute,
-                              'pipeline_interleaving': ppint,
-                              'optimizer_sharding': optimizer_sharding,
-                              'tensor_par_comm_type': tensor_par_comm_type,
-                              'tensor_par_overlap': False,
-                              'seq_par_ag_redo': seq_par_ag_redo,
-                              'data_par_overlap': data_par_overlap,
-                              'weight_offload': weight_offload,
-                              'activations_offload': activations_offload,
-                              'optimizer_offload': optimizer_offload,
-                              'training': True
-                            }
+                for tensor_par_overlap in pick(tp>1, [True, False], [False]):
+                  for weight_offload in pick(has_mem2, [True, False], [False]):
+                    if activation_recompute == 'full' or not has_mem2:
+                      activations_offloads = [False]
+                    else:
+                      activations_offloads = [True, False]
+                    for activations_offload in activations_offloads:
+                      for optimizer_offload in pick(has_mem2, [True, False],
+                                                    [False]):
+                        for tn in pick(tp>1, range(num_nets), [0]):
+                          for pn in pick(pp>1, range(num_nets), [0]):
+                            for dn in pick(dp>1, range(num_nets), [0]):
+                              exe_count += 1
+                              exe_json = {
+                                'num_procs': num_procs,
+                                'tensor_par': tp,
+                                'pipeline_par': pp,
+                                'data_par': dp,
+                                'tensor_par_net': tn,
+                                'pipeline_par_net': pn,
+                                'data_par_net': dn,
+                                'batch_size': batch_size,
+                                'microbatch_size': microbatch_size,
+                                'datatype': 'bfloat16',
+                                'fused_activation': True,
+                                'attention_type': 'multihead',
+                                'activation_recompute': activation_recompute,
+                                'pipeline_interleaving': ppint,
+                                'optimizer_sharding': optimizer_sharding,
+                                'tensor_par_comm_type': tensor_par_comm_type,
+                                'tensor_par_overlap': tensor_par_overlap,
+                                'seq_par_ag_redo': seq_par_ag_redo,
+                                'data_par_overlap': data_par_overlap,
+                                'weight_offload': weight_offload,
+                                'activations_offload': activations_offload,
+                                'optimizer_offload': optimizer_offload,
+                                'training': True
+                              }
 
-                            if not debug:
-                              try:
-                                logger = logging.Logger('sub')
-                                model = Megatron(app, logger)
-                                model.compile(
-                                  syst,
-                                  Megatron.Execution(exe_json))
-                                model.run(syst)
-                                stats = model.get_stats_json()
-                                good_exe_count += 1
-                                if (best_rate == None or
-                                    stats['sample_rate'] > best_rate):
-                                  best_rate = stats['sample_rate']
-                                  best_exe = exe_json
-                                  best_stats = stats
-                              except Megatron.Error as ex:
-                                logger = logging.getLogger()
-                                logger.debug(f'JSON:{exe_json}\nERROR:{ex}\n')
-                                bad_exe_count += 1
+                              if not debug:
+                                try:
+                                  logger = logging.Logger('sub')
+                                  model = Megatron(app, logger)
+                                  model.compile(
+                                    syst,
+                                    Megatron.Execution(exe_json))
+                                  model.run(syst)
+                                  stats = model.get_stats_json()
+                                  good_exe_count += 1
+                                  if (best_rate == None or
+                                      stats['sample_rate'] > best_rate):
+                                    best_rate = stats['sample_rate']
+                                    best_exe = exe_json
+                                    best_stats = stats
+                                except Megatron.Error as ex:
+                                  logger = logging.getLogger()
+                                  logger.debug(f'JSON:{exe_json}\nERROR:{ex}\n')
+                                  bad_exe_count += 1
   return (best_rate, best_stats, best_exe, exe_count, good_exe_count,
           bad_exe_count, tp, pp)
 
