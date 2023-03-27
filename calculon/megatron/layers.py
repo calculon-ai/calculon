@@ -778,3 +778,7 @@ class TPComm(Layer):
     else:
       raise Exception(f'Bad compute stage : {stage}')
     return 0
+
+  def get_exposed_net_time(self, stage, baseblock=True):
+    # only use after calling compute_processing_time(), otherwise it's set witth None
+    return self.compute_net_time(stage, baseblock)
