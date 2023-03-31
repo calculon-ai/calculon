@@ -190,9 +190,12 @@ class OptimalExecution(calculon.CommandLine):
       if tp not in data:
         data[tp] = {}
       if br != None:
-        data[tp][pp] = br
+        data[tp][pp] = {
+          'execution': be,
+          'stats': bs
+        }
       else:
-        data[tp][pp] = float('NaN')
+        data[tp][pp] = {}
 
     logger.info(f'Total executions: {exe_count}')
     logger.info(f'Good executions: {good_exe_count}')
