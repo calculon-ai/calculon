@@ -444,6 +444,13 @@ class Megatron:
     j['block_act_grad_space'] = self._block_act_grad_space
     j['block_optimizer_space'] = self._block_optimizer_space
 
+    j['weight_space_with_offload'] = self.get_weight_space_min()
+    j['act_space_with_offload'] = self.get_act_space_min()
+    j['act_checkpoint_size_with_offload'] = self.get_act_checkpoint_size_min()
+    j['act_grad_space_with_offload'] = self.get_act_grad_space_min()
+    j['weight_grad_space_with_offload'] = self.get_weight_grad_space_min()
+    j['optimizer_space_with_offload'] = self.get_optimizer_space_min()
+
     j['weight_space'] = self.get_weight_space()
     j['act_space'] = self.get_act_space()
     j['act_checkpoint_size'] = self.get_act_checkpoint_size()
@@ -1903,11 +1910,27 @@ class Megatron:
       total_flops / self.sys.matrix.flops
     return perfect_time / self.get_total_time()
 
+  def get_weight_space_min(self):
+    return self._block_weight_space * 2
+
   def get_weight_space(self):
     return self._weight_space
 
+  def get_act_space_min(self):
+    if self.exe.activation_recompute != 'full':
+      return self._block_act_working_space + self._block_act_storage_space
+    else:
+      return self._block_act_working_space
+
   def get_act_space(self):
     return self._act_space
+
+  def get_act_checkpoint_size_min(self):
+    if self.exe.training:
+      if self.exe.activation_recompute != 'full':
+        return 0
+      else:
+        return self._block_act_checkpoint_size * 2
 
   def get_act_checkpoint_size(self):
     if self.exe.training:
@@ -1918,15 +1941,35 @@ class Megatron:
     else:
       return 0
 
+  def get_weight_grad_space_min(self):
+    if self.exe.training:
+      # We keep one set of non-sharded weight grads after compute before
+      # reduction, and one sharded set for offloading
+      return self._block_weight_grad_space_no_sharding + \
+        self._block_weight_grad_space
+    else:
+      return 0
+
   def get_weight_grad_space(self):
     if self.exe.training:
       return self._weight_grad_space
     else:
       return 0
 
+  def get_act_grad_space_min(self):
+    return self.get_act_grad_space()
+
   def get_act_grad_space(self):
     if self.exe.training:
       return self._act_grad_space
+    else:
+      return 0
+
+    return self._block_optimizer_space * 2
+
+  def get_optimizer_space_min(self):
+    if self.exe.training:
+      return self._block_optimizer_space * 2
     else:
       return 0
 
@@ -1940,18 +1983,17 @@ class Megatron:
     tier1 = 0
     tier2 = 0
     if self.exe.weight_offload:
-      tier1 += self._block_weight_space * 2
+      tier1 += self.get_weight_space_min()
       tier2 += self.get_weight_space()
     else:
       tier1 += self.get_weight_space()
     if self.exe.activations_offload:
       if self.exe.activation_recompute != 'full':
-        tier1 += self._block_act_working_space + self._block_act_storage_space
+        tier1 += self.get_act_space_min()
         tier2 += self.get_act_space()
-        assert self.get_act_checkpoint_size() == 0
       else:
-        tier1 += self._block_act_checkpoint_size * 2
-        tier1 += self._block_act_working_space
+        tier1 += self.get_act_space_min()
+        tier1 += self.get_act_checkpoint_size_min()
         tier2 += self.get_act_checkpoint_size()
     else:
       tier1 += self.get_act_space()
@@ -1959,11 +2001,10 @@ class Megatron:
     if self.exe.optimizer_offload:
       # We keep one set of non-sharded weight grads after compute before
       # reduction, and one sharded set for offloading
-      tier1 += self._block_weight_grad_space_no_sharding + \
-        self._block_weight_grad_space
+      tier1 += self.get_weight_grad_space_min()
+      tier1 += self.get_optimizer_space_min()
       tier2 += self._block_weight_grad_space * self._blocks_per_proc
-      tier1 += self._block_optimizer_space * 2
-      tier2 += self._optimizer_space
+      tier2 += self.get_optimizer_space()
     else:
       tier1 += self.get_weight_grad_space() + \
         self.get_optimizer_space()
