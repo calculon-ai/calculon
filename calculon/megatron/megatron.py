@@ -1244,11 +1244,11 @@ class Megatron:
     self._wgrad_mem_accessed = mult * self._block_wgrad_mem_accessed
     self._wgrad_mem_time = mult * self._block_wgrad_mem_time
     self._wgrad_time = mult * self._block_wgrad_time
-    self._optim_flops = mult * self._block_optim_flops
-    self._optim_flops_time = mult * self._block_optim_flops_time
-    self._optim_mem_accessed = mult * self._block_optim_mem_accessed
-    self._optim_mem_time = mult * self._block_optim_mem_time
-    self._optim_time = mult * self._block_optim_time
+    self._optim_flops = self._blocks_per_proc * self._block_optim_flops
+    self._optim_flops_time = self._blocks_per_proc * self._block_optim_flops_time
+    self._optim_mem_accessed = self._blocks_per_proc * self._block_optim_mem_accessed
+    self._optim_mem_time = self._blocks_per_proc * self._block_optim_mem_time
+    self._optim_time = self._blocks_per_proc * self._block_optim_time
 
     # These TP numbers are for total times for all blocks in all chunks
     tp_fw_comm_time = self.exe._num_microbatches * self._chunks_per_proc * (
