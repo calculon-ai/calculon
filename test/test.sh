@@ -42,5 +42,5 @@ echo -e "\n\n"
 
 # Megatron optimal execution
 echo -e "### Testing megatron-optimal-execution"
-./bin/calculon moe examples/models/turing-530B.json 5128 2520 examples/h100_80g.json -e /tmp/calculon_exe.json -s /tmp/calculon_stats.json -r /tmp/calculon_raw.json
+./bin/calculon moe examples/models/turing-530B.json 5128 2520 examples/h100_80g_nvl8.json -e /tmp/calculon_exe.json -s /tmp/calculon_stats.json -r /tmp/calculon_raw.json
 echo -e "\n\n"
