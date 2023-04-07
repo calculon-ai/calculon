@@ -2,7 +2,7 @@
   "matrix": {
     "tflops": 1000,
     "gflops_efficiency": [
-      [128, 0.99],
+      [128, 0.95],
       [16, 0.9],
       [1, 0.6],
       [0, 0.1]
@@ -20,9 +20,9 @@
     "GiB": 80,
     "GBps": 3072,
     "MB_efficiency": [
-      [100, 0.95],
-      [10, 0.90],
-      [1, 0.7],
+      [100, 0.90],
+      [10, 0.75],
+      [1, 0.6],
       [0, 0.3]
     ]
   },
@@ -45,9 +45,9 @@
       "latency": 0.000001,
       "ops": {
         "p2p": 1.0,
-        "reduce_scatter": 1.0,
-        "all_gather": 1.0,
-        "all_reduce": 0.75
+        "reduce_scatter": 1.5,
+        "all_gather": 1.5,
+        "all_reduce": 1.0
       },
       "collective_minus1_scalar": false,
       "must_be_filled": true,
@@ -58,7 +58,7 @@
       "size": 65536,
       "latency": 0.000002,
       "ops": {
-        "p2p": 0.5,
+        "p2p": 1.0,
         "reduce_scatter": 1.0,
         "all_gather": 1.0,
         "all_reduce": 1.0
