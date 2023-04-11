@@ -43,7 +43,7 @@ def create_executions(num_procs, max_batch_size, app, syst):
   num_nets = syst.num_networks
   has_mem2 = syst.mem2.capacity > 0
 
-  for tp in Megatron.get_all_tensor_parallelisms(num_procs, app.attn_heads):
+  for tp in Megatron.get_all_tensor_parallelisms(num_procs, app.hidden, app.attn_heads):
     for pp in Megatron.get_all_pipeline_parallelisms(num_procs, tp, app.num_blocks):
       dp = Megatron.get_data_parallelism(num_procs, tp, pp)
       for ppint in Megatron.get_valid_pipeline_interleavings(app.num_blocks, pp):

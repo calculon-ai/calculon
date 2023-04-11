@@ -179,9 +179,9 @@ class Megatron:
         yield cand
 
   @staticmethod
-  def get_all_tensor_parallelisms(num_procs, attn_heads):
+  def get_all_tensor_parallelisms(num_procs, hidden, attn_heads):
     for cand in Megatron._factors(num_procs):
-      if attn_heads % cand == 0:
+      if hidden % cand == 0 and attn_heads % cand == 0:
         yield cand
 
   @staticmethod
@@ -1273,10 +1273,10 @@ class Megatron:
     tp_bw_comm_time_exposed = \
       self.exe._num_microbatches * self._chunks_per_proc * (
         self._baseblocks_per_chunk * (
-          self._baseblock_agrad_tp_time_exposed + 
+          self._baseblock_agrad_tp_time_exposed +
           self._baseblock_wgrad_tp_time_exposed) +
         self._edgeblocks_per_chunk * (
-          self._edgeblock_agrad_tp_time_exposed + 
+          self._edgeblock_agrad_tp_time_exposed +
           self._edgeblock_wgrad_tp_time_exposed))
     tp_recomm_time = self.exe._num_microbatches * self._chunks_per_proc * (
       (self._baseblocks_per_chunk * self._baseblock_recomm_time) +
@@ -1383,7 +1383,7 @@ class Megatron:
       self._baseblock_bw_time_no_offload)
     self._edgeblock_bw_offload_overhead = max(
       0, self.get_bw_offload_time() + self._block_agrad_mem_time +
-      self._block_wgrad_mem_time + self._block_optim_mem_time - 
+      self._block_wgrad_mem_time + self._block_optim_mem_time -
       self._edgeblock_bw_time_no_offload)
     self._baseblock_bw_time = (
       self._baseblock_bw_time_no_offload + self._baseblock_bw_offload_overhead)
