@@ -41,6 +41,10 @@ echo -e "### Testing megatron-validation"
 echo -e "\n\n"
 
 # Megatron optimal execution
-echo -e "### Testing megatron-optimal-execution"
+echo -e "### Testing megatron-optimal-execution (float16)"
 ./bin/calculon moe models/turing-530B.json 5128 2520 float16 systems/h100_80g_nvl8.json -e /tmp/calculon_exe.json -s /tmp/calculon_stats.json
+echo -e "\n"
+
+echo -e "### Testing megatron-optimal-execution (float8)"
+./bin/calculon moe models/turing-530B.json 5128 2520 float8 systems/h100_80g_nvl8.json -e /tmp/calculon_exe.json -s /tmp/calculon_stats.json
 echo -e "\n\n"

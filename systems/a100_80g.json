@@ -1,8 +1,8 @@
 {
   "matrix" : {
-    "tflops": 312,
-    "gflops_efficiency": {
-      "float16": [
+    "float16": {
+      "tflops": 312,
+      "gflops_efficiency": [
         [128, 0.95],
         [16, 0.9],
         [1, 0.6],
@@ -11,9 +11,9 @@
     }
   },
   "vector": {
-    "tflops": 78,
-    "gflops_efficiency": {
-      "float16": [
+    "float16": {
+      "tflops": 78,
+      "gflops_efficiency": [
         [16, 0.95],
         [1, 0.5],
         [0, 0.1]

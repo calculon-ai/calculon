@@ -1,8 +1,17 @@
 {
   "matrix": {
-    "tflops": 1000,
-    "gflops_efficiency": {
-      "float16": [
+    "float8": {
+      "tflops": 2000,
+      "gflops_efficiency": [
+        [128, 0.95],
+        [16, 0.9],
+        [1, 0.6],
+        [0, 0.1]
+      ]
+    },
+    "float16": {
+      "tflops": 1000,
+      "gflops_efficiency": [
         [128, 0.95],
         [16, 0.9],
         [1, 0.6],
@@ -11,9 +20,17 @@
     }
   },
   "vector": {
-    "tflops": 120,
-    "gflops_efficiency": {
-      "float16": [
+    "float8": {
+      "tflops": 120,
+      "gflops_efficiency": [
+        [16, 0.95],
+        [1, 0.5],
+        [0, 0.1]
+      ]
+    },
+    "float16": {
+      "tflops": 120,
+      "gflops_efficiency": [
         [16, 0.95],
         [1, 0.5],
         [0, 0.1]

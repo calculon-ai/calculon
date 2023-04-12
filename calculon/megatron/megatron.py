@@ -1891,7 +1891,7 @@ class Megatron:
     compute_time = self.get_fw_time() + self.get_bw_time() + \
       self.get_optim_step_time()
     perfect_time = self._blocks_per_proc * self.exe._num_microbatches * \
-      total_flops / self.sys.matrix.flops
+      total_flops / self.sys.matrix.flops(self.exe.datatype)
     return perfect_time / compute_time
 
   def get_system_efficiency(self):
@@ -1902,7 +1902,7 @@ class Megatron:
   def get_total_efficiency(self):
     total_flops = self.get_useful_flops()
     perfect_time = self._blocks_per_proc * self.exe._num_microbatches * \
-      total_flops / self.sys.matrix.flops
+      total_flops / self.sys.matrix.flops(self.exe.datatype)
     return perfect_time / self.get_total_time()
 
   def get_weight_space_min(self):
