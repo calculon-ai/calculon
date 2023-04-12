@@ -28,108 +28,6 @@ import calculon
 from calculon.util import pick
 from calculon.megatron import *
 
-def get_batch_size(data_par, max_batch_size):
-  last = data_par
-  while True:
-    if last + data_par > max_batch_size:
-      return last
-    else:
-      last += data_par
-
-
-all_executions = []
-
-def create_executions(num_procs, max_batch_size, app, syst):
-  num_nets = syst.num_networks
-  has_mem2 = syst.mem2.capacity > 0
-
-  for tp in Megatron.get_all_tensor_parallelisms(num_procs, app.hidden, app.attn_heads):
-    for pp in Megatron.get_all_pipeline_parallelisms(num_procs, tp, app.num_blocks):
-      dp = Megatron.get_data_parallelism(num_procs, tp, pp)
-      for ppint in Megatron.get_valid_pipeline_interleavings(app.num_blocks, pp):
-        batch_size = get_batch_size(dp, max_batch_size)
-        assert batch_size % dp == 0
-        for microbatch_size in Megatron.get_valid_microbatch_sizes(
-            app.seq_size, tp, dp, batch_size, pp):
-          for activation_recompute in ['full', 'attn_only', 'none']:
-            for optimizer_sharding in pick(dp>1, [True, False], [False]):
-              for tensor_par_comm_type in ['ar', 'p2p_rs_ag', 'rs_ag']:
-                can_redo = Megatron.can_redo_ag(tensor_par_comm_type,
-                                                activation_recompute)
-                for seq_par_ag_redo in pick(can_redo, [True, False], [False]):
-                  for data_par_overlap in pick(dp>1, [True, False], [False]):
-                    for tensor_par_overlap in pick(tp>1, [True, False], [False]):
-                      for weight_offload in pick(has_mem2, [True, False], [False]):
-                        if activation_recompute == 'full' or not has_mem2:
-                          activations_offloads = [False]
-                        else:
-                          activations_offloads = [True, False]
-                        for activations_offload in activations_offloads:
-                          for optimizer_offload in pick(has_mem2, [True, False],
-                                                        [False]):
-                            for tn in pick(tp>1, range(num_nets), [0]):
-                              for pn in pick(pp>1, range(num_nets), [0]):
-                                for dn in pick(dp>1, range(num_nets), [0]):
-                                  exe_json = {
-                                    'num_procs': num_procs,
-                                    'tensor_par': tp,
-                                    'pipeline_par': pp,
-                                    'data_par': dp,
-                                    'tensor_par_net': tn,
-                                    'pipeline_par_net': pn,
-                                    'data_par_net': dn,
-                                    'batch_size': batch_size,
-                                    'microbatch_size': microbatch_size,
-                                    'datatype': 'bfloat16',
-                                    'fused_activation': True,
-                                    'attention_type': 'multihead',
-                                    'activation_recompute': activation_recompute,
-                                    'pipeline_interleaving': ppint,
-                                    'optimizer_sharding': optimizer_sharding,
-                                    'tensor_par_comm_type': tensor_par_comm_type,
-                                    'tensor_par_overlap': tensor_par_overlap,
-                                    'seq_par_ag_redo': seq_par_ag_redo,
-                                    'data_par_overlap': data_par_overlap,
-                                    'weight_offload': weight_offload,
-                                    'activations_offload': activations_offload,
-                                    'optimizer_offload': optimizer_offload,
-                                    'training': True
-                                  }
-                                  all_executions.append(exe_json)
-
-
-def search(app, syst, start, num):
-  best_rate = None
-  best_stats = None
-  best_exe = None
-  good_exe_count = 0
-  bad_exe_count = 0
-  for exe_idx in range(start, start + num):
-    try:
-      exe_json = all_executions[exe_idx]
-    except IndexError as ex:
-      print(f'idx={exe_idx}')
-      raise ex
-    try:
-      logger = logging.Logger('sub')
-      model = Megatron(app, logger)
-      model.compile(syst, Megatron.Execution(exe_json))
-      model.run(syst)
-      stats = model.get_stats_json()
-      good_exe_count += 1
-      if (best_rate == None or
-          stats['sample_rate'] > best_rate):
-        best_rate = stats['sample_rate']
-        best_exe = exe_json
-        best_stats = stats
-    except Megatron.Error as ex:
-      logger = logging.getLogger()
-      logger.debug(f'JSON:{exe_json}\nERROR:{ex}\n')
-      bad_exe_count += 1
-  assert good_exe_count + bad_exe_count == num
-  return (best_rate, best_stats, best_exe, num, good_exe_count,
-          bad_exe_count)
-
 
 class OptimalExecution(calculon.CommandLine):
   NAME = 'megatron-optimal-execution'
@@ -168,7 +66,8 @@ class OptimalExecution(calculon.CommandLine):
       syst = System(json.load(fd))
 
     print('Creating execution list')
-    create_executions(args.num_procs, args.max_batch_size, app, syst)
+    all_executions = OptimalExecution.create_executions(
+      args.num_procs, args.max_batch_size, app, syst)
     print(f'{len(all_executions)} executions')
 
     print('Shuffling execution list')
@@ -181,13 +80,13 @@ class OptimalExecution(calculon.CommandLine):
     for cpu in range(args.cpus):
       end = min(start + step, len(all_executions) - 1)
       num = end - start + 1
-      params.append((app, syst, start, num))
+      params.append((app, syst, all_executions, start, num))
       start += num
 
     print('Running search')
     start_time = datetime.datetime.now()
     with mp.Pool(args.cpus) as pool:
-      searches = pool.starmap(search, params)
+      searches = pool.starmap(OptimalExecution.search, params)
     end_time = datetime.datetime.now()
 
     print('Analyzing search results')
@@ -230,5 +129,110 @@ class OptimalExecution(calculon.CommandLine):
           json.dump({} if none_found else best_stats, fd, indent=2)
         logger.info(f'Best stats: {args.stats}')
     return 0
+
+  @staticmethod
+  def get_batch_size(data_par, max_batch_size):
+    last = data_par
+    while True:
+      if last + data_par > max_batch_size:
+        return last
+      else:
+        last += data_par
+
+  @staticmethod
+  def create_executions(num_procs, max_batch_size, app, syst):
+    all_executions = []
+
+    num_nets = syst.num_networks
+    has_mem2 = syst.mem2.capacity > 0
+
+    for tp in Megatron.get_all_tensor_parallelisms(num_procs, app.hidden, app.attn_heads):
+      for pp in Megatron.get_all_pipeline_parallelisms(num_procs, tp, app.num_blocks):
+        dp = Megatron.get_data_parallelism(num_procs, tp, pp)
+        for ppint in Megatron.get_valid_pipeline_interleavings(app.num_blocks, pp):
+          batch_size = OptimalExecution.get_batch_size(dp, max_batch_size)
+          assert batch_size % dp == 0
+          for microbatch_size in Megatron.get_valid_microbatch_sizes(
+              app.seq_size, tp, dp, batch_size, pp):
+            for activation_recompute in ['full', 'attn_only', 'none']:
+              for optimizer_sharding in pick(dp>1, [True, False], [False]):
+                for tensor_par_comm_type in ['ar', 'p2p_rs_ag', 'rs_ag']:
+                  can_redo = Megatron.can_redo_ag(tensor_par_comm_type,
+                                                  activation_recompute)
+                  for seq_par_ag_redo in pick(can_redo, [True, False], [False]):
+                    for data_par_overlap in pick(dp>1, [True, False], [False]):
+                      for tensor_par_overlap in pick(tp>1, [True, False], [False]):
+                        for weight_offload in pick(has_mem2, [True, False], [False]):
+                          if activation_recompute == 'full' or not has_mem2:
+                            activations_offloads = [False]
+                          else:
+                            activations_offloads = [True, False]
+                          for activations_offload in activations_offloads:
+                            for optimizer_offload in pick(has_mem2, [True, False],
+                                                          [False]):
+                              for tn in pick(tp>1, range(num_nets), [0]):
+                                for pn in pick(pp>1, range(num_nets), [0]):
+                                  for dn in pick(dp>1, range(num_nets), [0]):
+                                    exe_json = {
+                                      'num_procs': num_procs,
+                                      'tensor_par': tp,
+                                      'pipeline_par': pp,
+                                      'data_par': dp,
+                                      'tensor_par_net': tn,
+                                      'pipeline_par_net': pn,
+                                      'data_par_net': dn,
+                                      'batch_size': batch_size,
+                                      'microbatch_size': microbatch_size,
+                                      'datatype': 'bfloat16',
+                                      'fused_activation': True,
+                                      'attention_type': 'multihead',
+                                      'activation_recompute': activation_recompute,
+                                      'pipeline_interleaving': ppint,
+                                      'optimizer_sharding': optimizer_sharding,
+                                      'tensor_par_comm_type': tensor_par_comm_type,
+                                      'tensor_par_overlap': tensor_par_overlap,
+                                      'seq_par_ag_redo': seq_par_ag_redo,
+                                      'data_par_overlap': data_par_overlap,
+                                      'weight_offload': weight_offload,
+                                      'activations_offload': activations_offload,
+                                      'optimizer_offload': optimizer_offload,
+                                      'training': True
+                                    }
+                                    all_executions.append(exe_json)
+    return all_executions
+
+  @staticmethod
+  def search(app, syst, all_executions, start, num):
+    best_rate = None
+    best_stats = None
+    best_exe = None
+    good_exe_count = 0
+    bad_exe_count = 0
+    for exe_idx in range(start, start + num):
+      try:
+        exe_json = all_executions[exe_idx]
+      except IndexError as ex:
+        print(f'idx={exe_idx}')
+        raise ex
+      try:
+        logger = logging.Logger('sub')
+        model = Megatron(app, logger)
+        model.compile(syst, Megatron.Execution(exe_json))
+        model.run(syst)
+        stats = model.get_stats_json()
+        good_exe_count += 1
+        if (best_rate == None or
+            stats['sample_rate'] > best_rate):
+          best_rate = stats['sample_rate']
+          best_exe = exe_json
+          best_stats = stats
+      except Megatron.Error as ex:
+        logger = logging.getLogger()
+        logger.debug(f'JSON:{exe_json}\nERROR:{ex}\n')
+        bad_exe_count += 1
+    assert good_exe_count + bad_exe_count == num
+    return (best_rate, best_stats, best_exe, num, good_exe_count,
+            bad_exe_count)
+
 
 calculon.CommandLine.register(OptimalExecution)
