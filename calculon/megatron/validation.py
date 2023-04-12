@@ -103,7 +103,7 @@ class Validation(calculon.CommandLine):
     def get_files(model, mode):
       assert model in kModels
       assert mode in kModes
-      app = f'examples/models/{model}.json'
+      app = f'models/{model}.json'
       exe = f'validation/seqsel/fig1/{model}_{mode}.json'
       return app, exe
 
@@ -112,7 +112,7 @@ class Validation(calculon.CommandLine):
       assert mode in kModes
       return kProfile[model][mode]
 
-    syst_file = f'examples/a100_80e.json'
+    syst_file = f'systems/a100_80e.json'
     with open(syst_file, 'r') as fd:
       syst = System(json.load(fd))
     data = {}
@@ -221,7 +221,7 @@ class Validation(calculon.CommandLine):
     def get_files(model, mode):
       assert model in kModels
       assert mode in kModes
-      app = f'examples/models/{model}.json'
+      app = f'models/{model}.json'
       exe = f'validation/seqsel/fig7/{model}_{mode}.json'
       return app, exe
 
@@ -230,7 +230,7 @@ class Validation(calculon.CommandLine):
       assert mode in kModes
       return kProfile[model][mode]
 
-    syst_file = f'examples/a100_80e.json'
+    syst_file = f'systems/a100_80e.json'
     with open(syst_file, 'r') as fd:
       syst = System(json.load(fd))
     raw = {}
@@ -308,7 +308,7 @@ class Validation(calculon.CommandLine):
     def get_files(model, mode):
       assert model in kModels
       assert mode in kModes
-      app = f'examples/models/{model}.json'
+      app = f'models/{model}.json'
       exe = f'validation/seqsel/tab5/{model}_{mode}.json'
       return app, exe
 
@@ -317,7 +317,7 @@ class Validation(calculon.CommandLine):
       assert mode in kModes
       return kProfile[model][mode]
 
-    syst_file = f'examples/a100_80g.json'
+    syst_file = f'systems/a100_80g.json'
     with open(syst_file, 'r') as fd:
       syst = System(json.load(fd))
     data = {}
