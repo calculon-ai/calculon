@@ -8,7 +8,7 @@
   "data_par_net": 1,
   "batch_size": 3072,
   "microbatch_size": 4,
-  "datatype": "bfloat16",
+  "datatype": "float16",
   "fused_activation": true,
   "attention_type": "multihead",
   "activation_recompute": "full",

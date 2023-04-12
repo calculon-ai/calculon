@@ -28,13 +28,6 @@ class Megatron:
   3. Run on particular hardware system
   """
 
-  _types_size_dict = {
-    'float8'    : 1,
-    'float16'   : 2,
-    'float32'   : 4,
-    'bfloat16'  : 2
-  }
-
   class Application:
     """Specifies the application configuration."""
     def __init__(self, cfg):
@@ -880,6 +873,8 @@ class Megatron:
     self.sys = sys
     self._check_network_assignments()
 
+    self.sys.set_datatype(self.exe.datatype)
+
     # If we have number of blocks not divisible by PP, we can allocate the
     # reminder of the blocks on the first num_block % PP Procs and block
     # "bubbles" on the last PP - (num_block % PP) Procs. To reflect that,
@@ -898,7 +893,7 @@ class Megatron:
     if self._blocks_per_proc % self.exe.pipeline_interleaving != 0:
       raise self.Error('Pipeline interleaving must be a factor value of the '
                        'number of blocks per processor')
-    self._bytes_per_element = self._types_size_dict[self.exe.datatype]
+    self._bytes_per_element = System.TypeSizes[self.exe.datatype]
 
     # Checks that enough blocks per processor exist if offloading is being
     # performed

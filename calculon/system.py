@@ -22,10 +22,22 @@ from .processor import *
 class System:
   """Configuration for a system."""
 
+  TypeSizes = {
+    'float8'   : 1,
+    'float16'  : 2,
+    'float32'  : 4,
+    'bfloat16' : 2
+  }
+
+  @staticmethod
+  def supported_datatypes():
+    return list(System.TypeSizes.keys())
+
   def __init__(self, cfg):
     self.cfg = cfg
     self.matrix = Processor(cfg['matrix'])
     self.vector = Processor(cfg['vector'])
+    self.datatype = None
 
     self.mem1 = Memory(cfg['mem1'])
     self.mem2 = Memory(cfg['mem2'])
@@ -43,11 +55,15 @@ class System:
     assert tier < len(self.networks), f'Bad network tier ID: {tier}'
     return self.networks[tier]
 
+  def set_datatype(self, datatype):
+    assert datatype in System.TypeSizes, f'Unsupported data type: {datatype}'
+    self.datatype = datatype
+
   def get_matrix_throughput(self, flops):
-    return self.matrix.throughput(flops)
+    return self.matrix.throughput(self.datatype, flops)
 
   def get_vector_throughput(self, flops):
-    return self.vector.throughput(flops)
+    return self.vector.throughput(self.datatype, flops)
 
   def get_mem1_throughput(self, size):
     return self.mem1.throughput(size)

@@ -1,20 +1,24 @@
 {
   "matrix": {
     "tflops": 1000,
-    "gflops_efficiency": [
-      [128, 0.95],
-      [16, 0.9],
-      [1, 0.6],
-      [0, 0.1]
-    ]
+    "gflops_efficiency": {
+      "float16": [
+        [128, 0.95],
+        [16, 0.9],
+        [1, 0.6],
+        [0, 0.1]
+      ]
+    }
   },
   "vector": {
     "tflops": 120,
-    "gflops_efficiency": [
-      [16, 0.95],
-      [1, 0.5],
-      [0, 0.1]
-    ]
+    "gflops_efficiency": {
+      "float16": [
+        [16, 0.95],
+        [1, 0.5],
+        [0, 0.1]
+      ]
+    }
   },
   "mem1": {
     "GiB": 80,

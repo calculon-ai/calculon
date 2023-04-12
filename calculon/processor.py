@@ -20,21 +20,24 @@ class Processor:
 
   def __init__(self, cfg):
     self._flops = cfg['tflops'] * 1e12
-    self._efficiency = []
-    for gflops, eff in cfg['gflops_efficiency']:
-      flops = gflops * 1e9
-      assert 0 < eff <= 1.0
-      self._efficiency.append((flops, eff))
+    self._efficiency = {}
+    for datatype in cfg['gflops_efficiency']:
+      self._efficiency[datatype] = []
+      for gflops, eff in cfg['gflops_efficiency'][datatype]:
+        flops = gflops * 1e9
+        assert 0 < eff <= 1.0
+        self._efficiency[datatype].append((flops, eff))
 
   @property
   def flops(self):
     return self._flops
 
-  def efficiency(self, op_flops):
-    for flops, eff in self._efficiency:
+  def efficiency(self, datatype, op_flops):
+    assert datatype in self._efficiency, f'Unsupported type: {datatype}'
+    for flops, eff in self._efficiency[datatype]:
       if op_flops >= flops:
         return eff
     assert False, f'OP flops {op_flops} wasn\'t covered'
 
-  def throughput(self, op_flops):
-    return self._flops * self.efficiency(op_flops)
+  def throughput(self, datatype, op_flops):
+    return self._flops * self.efficiency(datatype, op_flops)

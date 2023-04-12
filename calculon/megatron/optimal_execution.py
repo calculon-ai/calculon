@@ -47,6 +47,8 @@ class OptimalExecution(calculon.CommandLine):
                     help='Number of processors in execution')
     sp.add_argument('max_batch_size', type=int,
                     help='Maximum batch size, will be largest multiple of DP')
+    sp.add_argument('datatype', type=str, choices=System.supported_datatypes(),
+                    help='The datatype to use')
     sp.add_argument('system', type=str,
                     help='File path to system configuration')
     sp.add_argument('-e', '--execution', type=str, default=None,
@@ -67,7 +69,7 @@ class OptimalExecution(calculon.CommandLine):
 
     print('Creating execution list')
     all_executions = OptimalExecution.create_executions(
-      args.num_procs, args.max_batch_size, app, syst)
+      args.num_procs, args.max_batch_size, args.datatype, app, syst)
     print(f'{len(all_executions)} executions')
 
     print('Shuffling execution list')
@@ -140,7 +142,7 @@ class OptimalExecution(calculon.CommandLine):
         last += data_par
 
   @staticmethod
-  def create_executions(num_procs, max_batch_size, app, syst):
+  def create_executions(num_procs, max_batch_size, datatype, app, syst):
     all_executions = []
 
     num_nets = syst.num_networks
@@ -183,7 +185,7 @@ class OptimalExecution(calculon.CommandLine):
                                       'data_par_net': dn,
                                       'batch_size': batch_size,
                                       'microbatch_size': microbatch_size,
-                                      'datatype': 'bfloat16',
+                                      'datatype': datatype,
                                       'fused_activation': True,
                                       'attention_type': 'multihead',
                                       'activation_recompute': activation_recompute,
