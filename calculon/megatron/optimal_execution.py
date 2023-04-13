@@ -59,6 +59,8 @@ class OptimalExecution(calculon.CommandLine):
                     help='CPUs to use for parallelization')
     sp.add_argument('-n', '--noneok', action='store_true',
                     help='Don\'t give failure status when no good execution exists')
+    sp.add_argument('-k', '--count', action='store_true',
+                    help='Count executions only, then end')
 
   @staticmethod
   def run_command(logger, args):
@@ -72,17 +74,25 @@ class OptimalExecution(calculon.CommandLine):
       args.num_procs, args.max_batch_size, args.datatype, app, syst)
     print(f'{len(all_executions)} executions')
 
+    if args.count:
+      exit(0)
+
     print('Shuffling execution list')
     random.shuffle(all_executions)
 
-    print('Assigning execution ranges to CPUs')
+    print('Splitting execution list for CPUs')
+    executions = []
     step = math.ceil(len(all_executions) / args.cpus)
     start = 0
     params = []
     for cpu in range(args.cpus):
       end = min(start + step, len(all_executions) - 1)
       num = end - start + 1
-      params.append((app, syst, all_executions, start, num))
+      exes = []
+      for n in range(num):
+        exes.append(all_executions.pop(-1))
+      executions.append(exes)
+      params.append((app, syst, exes))
       start += num
 
     print('Running search')
@@ -204,18 +214,13 @@ class OptimalExecution(calculon.CommandLine):
     return all_executions
 
   @staticmethod
-  def search(app, syst, all_executions, start, num):
+  def search(app, syst, executions):
     best_rate = None
     best_stats = None
     best_exe = None
     good_exe_count = 0
     bad_exe_count = 0
-    for exe_idx in range(start, start + num):
-      try:
-        exe_json = all_executions[exe_idx]
-      except IndexError as ex:
-        print(f'idx={exe_idx}')
-        raise ex
+    for exe_json in executions:
       try:
         logger = logging.Logger('sub')
         model = Megatron(app, logger)
@@ -232,8 +237,8 @@ class OptimalExecution(calculon.CommandLine):
         logger = logging.getLogger()
         logger.debug(f'JSON:{exe_json}\nERROR:{ex}\n')
         bad_exe_count += 1
-    assert good_exe_count + bad_exe_count == num
-    return (best_rate, best_stats, best_exe, num, good_exe_count,
+    assert good_exe_count + bad_exe_count == len(executions)
+    return (best_rate, best_stats, best_exe, len(executions), good_exe_count,
             bad_exe_count)
 
 
