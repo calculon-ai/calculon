@@ -57,6 +57,8 @@ class OptimalExecution(calculon.CommandLine):
                     help='CPUs to use for parallelization')
     sp.add_argument('-n', '--noneok', action='store_true',
                     help='Don\'t give failure status when no good execution exists')
+    sp.add_argument('-m', '--mbs-break', action='store_true',
+                    help='Search across MBS and break earlier when possible')
 
   @staticmethod
   def run_command(logger, args):
@@ -80,7 +82,7 @@ class OptimalExecution(calculon.CommandLine):
                 params.append((args.debug, args.num_procs, args.max_batch_size,
                                args.datatype, app, syst, tp, pp, dp, ppint,
                                batch_size, activation_recompute, optimizer_sharding,
-                               tensor_par_comm_type))
+                               tensor_par_comm_type, args.mbs_break))
 
     start_time = datetime.datetime.now()
     with mp.Pool(args.cpus) as pool:
@@ -149,7 +151,8 @@ class OptimalExecution(calculon.CommandLine):
 
   @staticmethod
   def search(debug, num_procs, max_batch_size, datatype, app, syst, tp, pp, dp,
-             ppint, batch_size, activation_recompute, optimizer_sharding, tensor_par_comm_type):
+             ppint, batch_size, activation_recompute, optimizer_sharding,
+             tensor_par_comm_type, mbs_break):
     num_nets = syst.num_networks
 
     best_rate = None
@@ -176,6 +179,7 @@ class OptimalExecution(calculon.CommandLine):
                                             [False]):
                 for microbatch_size in Megatron.get_valid_microbatch_sizes(
                     app.seq_size, tp, dp, batch_size, pp):
+                  mbs_break_good = good_exe_count
                   for tn in pick(tp>1, range(num_nets), [0]):
                     for pn in pick(pp>1, range(num_nets), [0]):
                       for dn in pick(dp>1, range(num_nets), [0]):
@@ -225,6 +229,8 @@ class OptimalExecution(calculon.CommandLine):
                             logger = logging.getLogger()
                             logger.debug(f'JSON:{exe_json}\nERROR:{ex}\n')
                             bad_exe_count += 1
+                  if good_exe_count == mbs_break_good:
+                    break
     return (best_rate, best_stats, best_exe, exe_count, good_exe_count,
             bad_exe_count, tp, pp)
 
