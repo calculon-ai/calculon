@@ -229,7 +229,7 @@ class OptimalExecution(calculon.CommandLine):
                             logger = logging.getLogger()
                             logger.debug(f'JSON:{exe_json}\nERROR:{ex}\n')
                             bad_exe_count += 1
-                  if good_exe_count == mbs_break_good:
+                  if mbs_break and good_exe_count == mbs_break_good:
                     break
     return (best_rate, best_stats, best_exe, exe_count, good_exe_count,
             bad_exe_count, tp, pp)
