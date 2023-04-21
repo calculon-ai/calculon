@@ -22,7 +22,7 @@ import os
 
 import calculon
 from calculon.util import pick
-from calculon.megatron import *
+from calculon.llm import *
 
 
 CSV_EXE_FIELDS = [
@@ -94,14 +94,14 @@ def write_csv_data(csv, num, exe, stats):
 
 
 class AllExecutions(calculon.CommandLine):
-  NAME = 'megatron-all-executions'
-  ALIASES = ['mae']
+  NAME = 'llm-all-executions'
+  ALIASES = ['lae']
 
   @staticmethod
   def create_parser(subparser):
     sp = subparser.add_parser(
       AllExecutions.NAME, aliases=AllExecutions.ALIASES,
-      help='run a search to find the result of all megatron executions')
+      help='run a search to find the result of all llm executions')
     sp.set_defaults(func=AllExecutions.run_command)
     sp.add_argument('-d', '--debug', action='store_true',
                     help='Loop over executions, don\'t run them')
@@ -125,7 +125,7 @@ class AllExecutions(calculon.CommandLine):
   @staticmethod
   def run_command(logger, args):
     with open(args.application, 'r') as fd:
-      app = Megatron.Application(json.load(fd))
+      app = Llm.Application(json.load(fd))
     with open(args.system, 'r') as fd:
       syst = System(json.load(fd))
 
@@ -145,20 +145,20 @@ class AllExecutions(calculon.CommandLine):
       csv = open(args.csv, 'w')
       write_csv_header(csv)
 
-    for tp in Megatron.get_all_tensor_parallelisms(
+    for tp in Llm.get_all_tensor_parallelisms(
         args.num_procs, app.attn_heads):
-      for pp in Megatron.get_all_pipeline_parallelisms(
+      for pp in Llm.get_all_pipeline_parallelisms(
           args.num_procs, tp, app.num_blocks):
-        dp = Megatron.get_data_parallelism(args.num_procs, tp, pp)
-        for ppint in Megatron.get_valid_pipeline_interleavings(app.num_blocks, pp):
+        dp = Llm.get_data_parallelism(args.num_procs, tp, pp)
+        for ppint in Llm.get_valid_pipeline_interleavings(app.num_blocks, pp):
           batch_size = get_batch_size(dp, args.max_batch_size)
           assert batch_size % dp == 0
-          for microbatch_size in Megatron.get_valid_microbatch_sizes(
+          for microbatch_size in Llm.get_valid_microbatch_sizes(
               app.seq_size, tp, dp, batch_size, pp):
             for activation_recompute in ['full', 'attn_only', 'none']:
               for optimizer_sharding in pick(dp>1, [True, False], [False]):
                 for tensor_par_comm_type in ['ar', 'p2p_rs_ag', 'rs_ag']:
-                  can_redo = Megatron.can_redo_ag(tensor_par_comm_type,
+                  can_redo = Llm.can_redo_ag(tensor_par_comm_type,
                                                   activation_recompute)
                   for seq_par_ag_redo in pick(can_redo, [True, False], [False]):
                     for data_par_overlap in pick(dp>1, [True, False], [False]):
@@ -203,10 +203,10 @@ class AllExecutions(calculon.CommandLine):
                                     if not args.debug:
                                       try:
                                         logger = logging.Logger('sub')
-                                        model = Megatron(app, logger)
+                                        model = Llm(app, logger)
                                         model.compile(
                                           syst,
-                                          Megatron.Execution(exe_json))
+                                          Llm.Execution(exe_json))
                                         model.run(syst)
                                         stats = model.get_stats_json()
                                         good_exe_count += 1
@@ -218,7 +218,7 @@ class AllExecutions(calculon.CommandLine):
                                         if args.csv:
                                           print(exe_count)
                                           write_csv_data(csv, exe_count, exe_json, stats)
-                                      except Megatron.Error as ex:
+                                      except Llm.Error as ex:
                                         logger = logging.getLogger()
                                         logger.debug(f'JSON:{exe_json}\nERROR:{ex}\n')
                                         bad_exe_count += 1

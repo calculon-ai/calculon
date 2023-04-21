@@ -19,17 +19,17 @@ import json
 import os
 
 import calculon
-from calculon.megatron import *
+from calculon.llm import *
 
 class ParameterCalculator(calculon.CommandLine):
-  NAME = 'megatron-parameter-calculator'
-  ALIASES = ['mpc']
+  NAME = 'llm-parameter-calculator'
+  ALIASES = ['lpc']
 
   @staticmethod
   def create_parser(subparser):
     sp = subparser.add_parser(ParameterCalculator.NAME,
                               aliases=ParameterCalculator.ALIASES,
-                              help='run a single megatron calculation')
+                              help='run a single llm calculation')
     sp.set_defaults(func=ParameterCalculator.run_command)
     sp.add_argument('application', type=str,
                     help='File path to application configuration')
@@ -42,8 +42,8 @@ class ParameterCalculator(calculon.CommandLine):
       app_json = json.load(fd)
 
     try:
-      app = Megatron.Application(app_json)
-    except Megatron.Error as error:
+      app = Llm.Application(app_json)
+    except Llm.Error as error:
       print(f'ERROR: {error}')
       return -1
 

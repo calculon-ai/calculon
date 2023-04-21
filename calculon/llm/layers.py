@@ -115,7 +115,7 @@ class Layer:
   def shard_optimizer(self, num_procs):
     self.optim_sharding_num_proc = num_procs
 
-  # getters that will be called from Megatron model class, can be rewritten
+  # getters that will be called from Llm model class, can be rewritten
   def get_fw_flops(self):
     return self.fw_flops
 

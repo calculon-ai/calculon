@@ -24,18 +24,18 @@ import os
 
 import calculon
 from calculon.util import pick
-from calculon.megatron import *
+from calculon.llm import *
 
 
 class OptimalExecution(calculon.CommandLine):
-  NAME = 'megatron-optimal-execution'
-  ALIASES = ['moe']
+  NAME = 'llm-optimal-execution'
+  ALIASES = ['loe']
 
   @staticmethod
   def create_parser(subparser):
     sp = subparser.add_parser(
       OptimalExecution.NAME, aliases=OptimalExecution.ALIASES,
-      help='run a search to find the optimal megatron execution')
+      help='run a search to find the optimal llm execution')
     sp.set_defaults(func=OptimalExecution.run_command)
     sp.add_argument('-d', '--debug', action='store_true',
                     help='Loop over executions, don\'t run them')
@@ -63,17 +63,17 @@ class OptimalExecution(calculon.CommandLine):
   @staticmethod
   def run_command(logger, args):
     with open(args.application, 'r') as fd:
-      app = Megatron.Application(json.load(fd))
+      app = Llm.Application(json.load(fd))
     with open(args.system, 'r') as fd:
       syst = System(json.load(fd))
 
     params = []
-    for tp in Megatron.get_all_tensor_parallelisms(
+    for tp in Llm.get_all_tensor_parallelisms(
         args.num_procs, app.hidden, app.attn_heads):
-      for pp in Megatron.get_all_pipeline_parallelisms(
+      for pp in Llm.get_all_pipeline_parallelisms(
           args.num_procs, tp, app.num_blocks):
-        dp = Megatron.get_data_parallelism(args.num_procs, tp, pp)
-        for ppint in Megatron.get_valid_pipeline_interleavings(app.num_blocks, pp):
+        dp = Llm.get_data_parallelism(args.num_procs, tp, pp)
+        for ppint in Llm.get_valid_pipeline_interleavings(app.num_blocks, pp):
           batch_size = OptimalExecution.get_batch_size(dp, args.max_batch_size)
           assert batch_size % dp == 0
           for activation_recompute in ['full', 'attn_only', 'none']:
@@ -164,8 +164,8 @@ class OptimalExecution(calculon.CommandLine):
 
     has_mem2 = syst.mem2.capacity > 0
 
-    can_redo = Megatron.can_redo_ag(tensor_par_comm_type,
-                                    activation_recompute)
+    can_redo = Llm.can_redo_ag(tensor_par_comm_type,
+                               activation_recompute)
     for seq_par_ag_redo in pick(can_redo, [True, False], [False]):
       for data_par_overlap in pick(dp>1, [True, False], [False]):
         for tensor_par_overlap in pick(tp>1, [True, False], [False]):
@@ -177,7 +177,7 @@ class OptimalExecution(calculon.CommandLine):
             for activations_offload in activations_offloads:
               for optimizer_offload in pick(has_mem2, [True, False],
                                             [False]):
-                for microbatch_size in Megatron.get_valid_microbatch_sizes(
+                for microbatch_size in Llm.get_valid_microbatch_sizes(
                     app.seq_size, tp, dp, batch_size, pp):
                   mbs_break_good = good_exe_count
                   for tn in pick(tp>1, range(num_nets), [0]):
@@ -213,10 +213,10 @@ class OptimalExecution(calculon.CommandLine):
                         if not debug:
                           try:
                             logger = logging.Logger('sub')
-                            model = Megatron(app, logger)
+                            model = Llm(app, logger)
                             model.compile(
                               syst,
-                              Megatron.Execution(exe_json))
+                              Llm.Execution(exe_json))
                             model.run(syst)
                             stats = model.get_stats_json()
                             good_exe_count += 1
@@ -225,7 +225,7 @@ class OptimalExecution(calculon.CommandLine):
                               best_rate = stats['sample_rate']
                               best_exe = exe_json
                               best_stats = stats
-                          except Megatron.Error as ex:
+                          except Llm.Error as ex:
                             logger = logging.getLogger()
                             logger.debug(f'JSON:{exe_json}\nERROR:{ex}\n')
                             bad_exe_count += 1

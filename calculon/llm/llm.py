@@ -19,7 +19,7 @@ from calculon import *
 from .layers import *
 
 
-class Megatron:
+class Llm:
   """
   This implements the transformer with tensor, pipeline, and data parallelism.
   Using it follows this pattern:
@@ -173,7 +173,7 @@ class Megatron:
 
   @staticmethod
   def get_all_tensor_parallelisms(num_procs, hidden, attn_heads):
-    for cand in Megatron._factors(num_procs):
+    for cand in Llm._factors(num_procs):
       if hidden % cand == 0 and attn_heads % cand == 0:
         yield cand
 
@@ -181,7 +181,7 @@ class Megatron:
   def get_all_pipeline_parallelisms(num_procs, tensor_par, num_blocks):
     assert num_procs % tensor_par == 0
     max_pp = min(num_procs // tensor_par, num_blocks)
-    for cand in Megatron._factors(max_pp):
+    for cand in Llm._factors(max_pp):
       if (num_procs % (tensor_par * cand) == 0 and
           num_blocks % cand == 0):
         yield cand
@@ -199,14 +199,14 @@ class Megatron:
       yield 1
     else:
       max_ppint = num_blocks // pipeline_par
-      yield from Megatron._factors(max_ppint)
+      yield from Llm._factors(max_ppint)
 
   @staticmethod
   def get_valid_microbatch_sizes(
       seq_size, tensor_par, data_par, global_batch_size, pipeline_par):
     assert global_batch_size % data_par == 0
     local_batch_size = global_batch_size // data_par
-    for cand in Megatron._factors(local_batch_size):
+    for cand in Llm._factors(local_batch_size):
       batch_seq = cand * seq_size
       if batch_seq % tensor_par == 0:
         yield cand
@@ -231,7 +231,7 @@ class Megatron:
     self._executed = False
 
     # Holds the layers in a single block
-    self._megatron_block = []
+    self._llm_block = []
 
     # A chunk is a set of blocks for microbatch before passing to the next
     # processor in the pipeline. Each chunk is modeled as a base
@@ -479,7 +479,7 @@ class Megatron:
     j['total_efficiency'] = self.get_total_efficiency()
     j['sample_rate'] = self.get_sample_rate()
     j['layers'] = []
-    for layer in self._megatron_block:
+    for layer in self._llm_block:
       j['layers'].append(layer.get_stats_json())
     return j
 
@@ -499,7 +499,7 @@ class Megatron:
       f"We should split {self.app.attn_heads} attn_heads between"
       f" {self.exe.tensor_par} TP partitions evenly")
 
-    self._megatron_block.append(Fork(
+    self._llm_block.append(Fork(
       "AttnBlock_Fork",
       self.sys,
       pick(self.exe._sequence_par, self._seq_par_activation_size,
@@ -508,7 +508,7 @@ class Megatron:
       needs_recompute=recompute_flag,
       # We account this activation when consider Residual and LayerNorm
       activation_stored=True))
-    self._megatron_block.append(LayerNorm(
+    self._llm_block.append(LayerNorm(
       "AttnBlock_LayerNorm",
       self.sys,
       pick(self.exe._sequence_par, self._seq_par_activation_size,
@@ -519,7 +519,7 @@ class Megatron:
       activation_stored=False,
       activation_reused=True))
     if not self.exe.tensor_par_overlap:
-      self._megatron_block.append(TPComm(
+      self._llm_block.append(TPComm(
         "AttnBlock_F",
         self.sys,
         self._activation_size,
@@ -532,7 +532,7 @@ class Megatron:
         conjugate=False,
         in_network_reduction=self.exe.in_network_reduction,
         needs_recompute=recompute_ag_flag))
-      self._megatron_block.append(Fork(
+      self._llm_block.append(Fork(
         "AttnBlock_Multihead_Fork",
         self.sys,
         self._activation_size,
@@ -541,7 +541,7 @@ class Megatron:
         # With seq_par, we use activations from Comm layers to reflect that
         # they're split, otherwise we keep full size activations
         activation_stored=(not recompute_ag_flag)))
-      self._megatron_block.append(Linear(
+      self._llm_block.append(Linear(
         "AttnBlock_Query",
         self.sys,
         self._batch_seq,
@@ -552,7 +552,7 @@ class Megatron:
         activation_stored=False,
         activation_reused=True))
       if self.exe.attention_type == 'multihead':
-        self._megatron_block.append(Linear(
+        self._llm_block.append(Linear(
           "AttnBlock_Key",
           self.sys,
           self._batch_seq,
@@ -562,7 +562,7 @@ class Megatron:
           # Activation is stored in Fork instead,
           activation_stored=False,
           activation_reused=True))
-        self._megatron_block.append(Linear(
+        self._llm_block.append(Linear(
           "AttnBlock_Value",
           self.sys,
           self._batch_seq,
@@ -575,7 +575,7 @@ class Megatron:
       elif self.exe.attention_type == 'multiquery':
         # Multiqueri attention uses the same K, V for all "heads" resulting in
         # smaller Wk and Wv, less matmul, faster inference
-        self._megatron_block.append(Linear(
+        self._llm_block.append(Linear(
           "AttnBlock_Key",
           self.sys,
           self._batch_seq,
@@ -585,7 +585,7 @@ class Megatron:
           # Activation is stored in Fork instead,
           activation_stored=False,
           activation_reused=True))
-        self._megatron_block.append(Linear(
+        self._llm_block.append(Linear(
           "AttnBlock_Value",
           self.sys,
           self._batch_seq,
@@ -599,7 +599,7 @@ class Megatron:
         raise self.Error('Wrong attention type', self.exe.attention_type)
     else:
       if self.exe.attention_type == 'multihead':
-        self._megatron_block.append(LinearOverlapped(
+        self._llm_block.append(LinearOverlapped(
           "AttnBlock_QKV_AG",
           self.sys,
           self._batch_seq,
@@ -613,7 +613,7 @@ class Megatron:
           conjugate=False,
           needs_recompute=recompute_flag))
       elif self.exe.attention_type == 'multiquery':
-        self._megatron_block.append(LinearOverlapped(
+        self._llm_block.append(LinearOverlapped(
           "AttnBlock_Query_AG",
           self.sys,
           self._batch_seq,
@@ -626,7 +626,7 @@ class Megatron:
           wgrad_ag_act=self.exe.seq_par_ag_redo,
           conjugate=False,
           needs_recompute=recompute_flag))
-        self._megatron_block.append(Fork(
+        self._llm_block.append(Fork(
           "AttnBlock_KV_Fork",
           self.sys,
           self._activation_size,
@@ -635,7 +635,7 @@ class Megatron:
           # With seq_par, we use activations from Comm layers to reflect that
           # they're split, otherwise we keep full size activations
           activation_stored=(not recompute_ag_flag)))
-        self._megatron_block.append(Linear(
+        self._llm_block.append(Linear(
           "AttnBlock_Key",
           self.sys,
           self._batch_seq,
@@ -645,7 +645,7 @@ class Megatron:
           # Activation is stored in Fork instead,
           activation_stored=False,
           activation_reused=True))
-        self._megatron_block.append(Linear(
+        self._llm_block.append(Linear(
           "AttnBlock_Value",
           self.sys,
           self._batch_seq,
@@ -657,7 +657,7 @@ class Megatron:
           activation_reused=True))
       else:
         raise self.Error('Wrong attention type', self.exe.attention_type)
-    self._megatron_block.append(BatchMatMul(
+    self._llm_block.append(BatchMatMul(
       "AttnBlock_Multihead_Key_Query",
       self.sys,
       self.exe.microbatch_size * self.app.attn_heads // self.exe.tensor_par,
@@ -666,21 +666,21 @@ class Megatron:
       self.app.seq_size,
       needs_recompute=recompute_attn_flag,
       output_stored=(not recompute_attn_flag)))
-    self._megatron_block.append(SoftMax(
+    self._llm_block.append(SoftMax(
       "AttnBlock_Multihead_SoftMax",
       self.sys,
       self.app.attn_heads // self.exe.tensor_par * \
         self.app.seq_size**2 * self.exe.microbatch_size,
       needs_recompute=recompute_attn_flag,
       output_stored=(not recompute_attn_flag)))
-    self._megatron_block.append(DropOut(
+    self._llm_block.append(DropOut(
       "AttnBlock_Multihead_DropOut",
       self.sys,
       self.app.attn_heads // self.exe.tensor_par * \
         self.app.seq_size**2 * self.exe.microbatch_size,
       needs_recompute=recompute_attn_flag,
       activation_stored=(not recompute_attn_flag)))
-    self._megatron_block.append(BatchMatMul(
+    self._llm_block.append(BatchMatMul(
       "AttnBlock_Multihead_Attn",
       self.sys,
       self.exe.microbatch_size * self.app.attn_heads // self.exe.tensor_par,
@@ -689,14 +689,14 @@ class Megatron:
       self.app.attn_heads * self.app.attn_size // self.app.attn_heads,
       needs_recompute=recompute_flag))
     if not self.exe.tensor_par_overlap:
-      self._megatron_block.append(Linear(
+      self._llm_block.append(Linear(
         "AttnBlock_MLP",
         self.sys,
         self._batch_seq,
         self.app.attn_heads * self.app.attn_size // self.exe.tensor_par,
         self.app.hidden,
         needs_recompute=recompute_flag))
-      self._megatron_block.append(TPComm(
+      self._llm_block.append(TPComm(
         "AttnBlock_G",
         self.sys,
         self._activation_size,
@@ -712,7 +712,7 @@ class Megatron:
         # We don't store input to RS/AR
         activation_stored=False))
     else:
-      self._megatron_block.append(LinearOverlapped(
+      self._llm_block.append(LinearOverlapped(
         "AttnBlock_MLP_RS",
         self.sys,
         self._batch_seq,
@@ -724,13 +724,13 @@ class Megatron:
         self.exe.tensor_par,
         conjugate=True,
         needs_recompute=recompute_flag))
-    self._megatron_block.append(DropOut(
+    self._llm_block.append(DropOut(
       "AttnBlock_DropOut",
       self.sys,
       pick(self.exe._sequence_par, self._seq_par_activation_size,
            self._activation_size),
       needs_recompute=recompute_flag))
-    self._megatron_block.append(ElementWise(
+    self._llm_block.append(ElementWise(
       "AttnBlock_Residual",
       self.sys,
       pick(self.exe._sequence_par, self._seq_par_activation_size,
@@ -746,7 +746,7 @@ class Megatron:
     recompute_flag = self.exe.activation_recompute == "full"
     recompute_ag_flag = recompute_flag or self.exe.seq_par_ag_redo
 
-    self._megatron_block.append(Fork(
+    self._llm_block.append(Fork(
       "MlpBlock_Fork",
       self.sys,
       pick(self.exe._sequence_par, self._seq_par_activation_size,
@@ -755,7 +755,7 @@ class Megatron:
       needs_recompute=recompute_flag,
       # We account this activation when consider Residual and LayerNorm
       activation_stored=True))
-    self._megatron_block.append(LayerNorm(
+    self._llm_block.append(LayerNorm(
       "MlpBlock_LayerNorm",
       self.sys,
       pick(self.exe._sequence_par, self._seq_par_activation_size,
@@ -766,7 +766,7 @@ class Megatron:
       activation_stored=False,
       activation_reused=True))
     if not self.exe.tensor_par_overlap:
-      self._megatron_block.append(TPComm(
+      self._llm_block.append(TPComm(
         "MlpBlock_F",
         self.sys,
         # We only do compute/mem analyzing this layers, comm analyzed later
@@ -781,7 +781,7 @@ class Megatron:
         conjugate=False,
         in_network_reduction=self.exe.in_network_reduction,
         needs_recompute=recompute_ag_flag))
-      self._megatron_block.append(Linear(
+      self._llm_block.append(Linear(
         "MlpBlock_Mlp1",
         self.sys,
         self._batch_seq,
@@ -792,7 +792,7 @@ class Megatron:
         # they're split, otherwise we keep full size activations
         activation_stored=(not recompute_ag_flag)))
     else:
-      self._megatron_block.append(LinearOverlapped(
+      self._llm_block.append(LinearOverlapped(
         "MlpBlock_Mlp1_AG",
         self.sys,
         self._batch_seq,
@@ -805,21 +805,21 @@ class Megatron:
         wgrad_ag_act=self.exe.seq_par_ag_redo,
         conjugate=False,
         needs_recompute=recompute_flag))
-    self._megatron_block.append(GeLU(
+    self._llm_block.append(GeLU(
       "MlpBlock_GeLU",
       self.sys,
       self.app.feedforward * self._batch_seq // self.exe.tensor_par,
       needs_recompute=recompute_flag,
       fused=self.exe.fused_activation))
     if not self.exe.tensor_par_overlap:
-      self._megatron_block.append(Linear(
+      self._llm_block.append(Linear(
         "MlpBlock_Mlp2",
         self.sys,
         self._batch_seq,
         self.app.feedforward // self.exe.tensor_par,
         self.app.hidden,
         needs_recompute=recompute_flag))
-      self._megatron_block.append(TPComm(
+      self._llm_block.append(TPComm(
         "MlpBlock_G",
         self.sys,
         self._activation_size,
@@ -835,7 +835,7 @@ class Megatron:
         # We don't store input to RS/AR
         activation_stored=False))
     else:
-      self._megatron_block.append(LinearOverlapped(
+      self._llm_block.append(LinearOverlapped(
         "MlpBlock_Mlp2_RS",
         self.sys,
         self._batch_seq,
@@ -847,13 +847,13 @@ class Megatron:
         self.exe.tensor_par,
         conjugate=True,
         needs_recompute=recompute_flag))
-    self._megatron_block.append(DropOut(
+    self._llm_block.append(DropOut(
       "MlpBlock_DropOut",
       self.sys,
       pick(self.exe._sequence_par, self._seq_par_activation_size,
            self._activation_size),
       needs_recompute=recompute_flag))
-    self._megatron_block.append(ElementWise(
+    self._llm_block.append(ElementWise(
       "MlpBlock_Residual",
       self.sys,
       pick(self.exe._sequence_par, self._seq_par_activation_size,
@@ -927,7 +927,7 @@ class Megatron:
     self._seq_par_activation_size = self._batch_seq_par * self.app.hidden
     self._build_attn_block()
     self._build_mlp_block()
-    for layer in self._megatron_block:
+    for layer in self._llm_block:
       layer.set_bytes_per_element(self._bytes_per_element)
       if self.exe.optimizer_sharding:
         layer.shard_optimizer(self.exe.data_par)
@@ -1030,7 +1030,7 @@ class Megatron:
     self._block_optimizer_space = 0
 
     prev_layer_recompute = False
-    for layer in self._megatron_block:
+    for layer in self._llm_block:
       # Add flops/bytes/times per layer
       self._block_fw_flops += layer.get_fw_flops()
       self._block_fw_flops_time += layer.compute_flops_time("fw")
@@ -1879,11 +1879,11 @@ class Megatron:
 
   def get_useful_flops(self):
     total_flops = sum(
-      [block.get_fw_flops() for block in self._megatron_block])
+      [block.get_fw_flops() for block in self._llm_block])
     if self.exe.training:
       total_flops += sum(
         [block.get_agrad_flops() + block.get_wgrad_flops() + \
-          block.get_optim_step_flops() for block in self._megatron_block])
+          block.get_optim_step_flops() for block in self._llm_block])
     return total_flops
 
   def get_compute_efficiency(self):

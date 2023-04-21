@@ -16,7 +16,7 @@
 """
 
 from .layers import *
-from .megatron import *
+from .llm import *
 
 # Command lines
 from .all_executions import AllExecutions

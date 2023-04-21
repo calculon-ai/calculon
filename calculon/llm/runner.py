@@ -18,16 +18,16 @@
 import json
 
 import calculon
-from calculon.megatron import *
+from calculon.llm import *
 
 class Runner(calculon.CommandLine):
-  NAME = 'megatron'
-  ALIASES = ['mt', 'm']
+  NAME = 'llm'
+  ALIASES = []
 
   @staticmethod
   def create_parser(subparser):
     sp = subparser.add_parser(Runner.NAME, aliases=Runner.ALIASES,
-                              help='run a single megatron calculation')
+                              help='run a single llm calculation')
     sp.set_defaults(func=Runner.run_command)
     sp.add_argument('application', type=str,
                     help='File path to application configuration')
@@ -49,15 +49,15 @@ class Runner(calculon.CommandLine):
     with open(args.system, 'r') as fd:
       sys_json = json.load(fd)
 
-    app = Megatron.Application(app_json)
-    exe = Megatron.Execution(exe_json)
+    app = Llm.Application(app_json)
+    exe = Llm.Execution(exe_json)
     syst = System(sys_json)
 
     try:
-      model = Megatron(app, logger)
+      model = Llm(app, logger)
       model.compile(syst, exe)
       model.run(syst)
-    except Megatron.Error as error:
+    except Llm.Error as error:
       print(f'ERROR: {error}')
       return -1
 

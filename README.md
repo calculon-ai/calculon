@@ -27,23 +27,18 @@ $> calculon -h
 
 You can also see how to use any command specifically by using `--help` or `-h` on the command:
 ``` sh
-$> calculon megatron -h
+$> calculon llm -h
 ```
 
-## Megatron Example
+## LLM Example
 
-Run a single calculation for Megatron (~1 sec):
+Run a single calculation for LLM (~1 sec):
 ``` sh
-$> calculon megatron examples/1T.json examples/megatron_execution.json examples/a100.json -
+$> calculon llm models/megatron-1T.json examples/3072_t4_p64_d12_mbs4_full.json systems/a100_80g.json -
 ```
 
-Run a system execution optimizer for Megatron (~5 mins):
+Run a system execution optimizer for LLM (~5 mins):
 ``` sh
-$> calculon megatron-optimal-execution examples/1T.json 4096 3072 examples/a100.json -e opt_exe.json -s opt_stats.json -r opt_raw.json
+$> calculon llm-optimal-execution models/megatron-1T.json 4096 3072 float16 systems/a100_80g.json -e opt_exe.json -s opt_stats.json -m
 ```
 `opt_exe.json` will contain the optimal way to run Megatron-1T across 4096 A100 GPUs.
-
-You can see a 3D representation of the parallelism split using this command:
-``` sh
-$> ./scripts/3dplot.py opt_raw.json
-```

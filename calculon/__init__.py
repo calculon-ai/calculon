@@ -24,4 +24,4 @@ from .util import *
 from .version import Version
 
 # Imports submodules
-from .megatron import *
+from .llm import *

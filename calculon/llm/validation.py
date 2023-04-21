@@ -21,18 +21,18 @@ import math
 
 import calculon
 from calculon.util import pick
-from calculon.megatron import *
+from calculon.llm import *
 
 
 class Validation(calculon.CommandLine):
-  NAME = 'megatron-validation'
-  ALIASES = ['mv']
+  NAME = 'llm-validation'
+  ALIASES = ['lv']
 
   @staticmethod
   def create_parser(subparser):
     sp = subparser.add_parser(
       Validation.NAME, aliases=Validation.ALIASES,
-      help='run a validation of megatron execution')
+      help='run a validation of llm execution')
     sp.set_defaults(func=Validation.run_command)
     sp.add_argument('-v', '--verbose', action='store_true',
                     help='Show verbose output while running')
@@ -124,10 +124,10 @@ class Validation(calculon.CommandLine):
         data[model][mode] = {}
         app_file, exe_file = get_files(model, mode)
         with open(app_file, 'r') as fd:
-          app = Megatron.Application(json.load(fd))
+          app = Llm.Application(json.load(fd))
         with open(exe_file, 'r') as fd:
-          exe = Megatron.Execution(json.load(fd))
-        mt = Megatron(app, logger)
+          exe = Llm.Execution(json.load(fd))
+        mt = Llm(app, logger)
         mt.compile(syst, exe)
         mt.run(syst)
         stats = mt.get_stats_json()
@@ -242,10 +242,10 @@ class Validation(calculon.CommandLine):
         raw[model][mode] = {}
         app_file, exe_file = get_files(model, mode)
         with open(app_file, 'r') as fd:
-          app = Megatron.Application(json.load(fd))
+          app = Llm.Application(json.load(fd))
         with open(exe_file, 'r') as fd:
-          exe = Megatron.Execution(json.load(fd))
-        mt = Megatron(app, logger)
+          exe = Llm.Execution(json.load(fd))
+        mt = Llm(app, logger)
         mt.compile(syst, exe)
         mt.run(syst)
         stats = mt.get_stats_json()
@@ -329,10 +329,10 @@ class Validation(calculon.CommandLine):
         data[model][mode] = {}
         app_file, exe_file = get_files(model, mode)
         with open(app_file, 'r') as fd:
-          app = Megatron.Application(json.load(fd))
+          app = Llm.Application(json.load(fd))
         with open(exe_file, 'r') as fd:
-          exe = Megatron.Execution(json.load(fd))
-        mt = Megatron(app, logger)
+          exe = Llm.Execution(json.load(fd))
+        mt = Llm(app, logger)
         mt.compile(syst, exe)
         mt.run(syst)
         stats = mt.get_stats_json()
