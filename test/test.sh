@@ -42,9 +42,9 @@ echo -e "\n\n"
 
 # Llm optimal execution
 echo -e "### Testing llm-optimal-execution (float16)"
-./bin/calculon loe models/turing-530B.json 5128 2520 float16 systems/h100_80g_nvl8.json -e /tmp/calculon_exe.json -s /tmp/calculon_stats.json
+./bin/calculon loe models/turing-530B.json 5128 2520 float16 systems/h100_80g_nvl8.json -e /tmp/calculon_530B_fp16_exe.json -s /tmp/calculon_530B_fp16_stats.json
 echo -e "\n"
 
 echo -e "### Testing llm-optimal-execution (float8) (using -m)"
-./bin/calculon loe models/turing-530B.json 5128 2520 float8 systems/h100_80g_nvl8.json -e /tmp/calculon_exe.json -s /tmp/calculon_stats.json -m
+./bin/calculon loe models/turing-530B.json 5128 2520 float8 systems/h100_80g_nvl8.json -e /tmp/calculon_530B_fp8_exe.json -s /tmp/calculon_530B_fp8_stats.json -m
 echo -e "\n\n"
