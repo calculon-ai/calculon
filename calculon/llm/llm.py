@@ -193,11 +193,6 @@ class Llm:
     return num_procs // (tensor_par * pipeline_par)
 
   @staticmethod
-  def get_all_batch_sizes(data_par, max_batch_size):
-    for batch_size in range(data_par, max_batch_size + 1, data_par):
-      yield batch_size
-
-  @staticmethod
   def get_valid_pipeline_interleavings(num_blocks, pipeline_par):
     assert num_blocks % pipeline_par == 0
     if pipeline_par == 1:

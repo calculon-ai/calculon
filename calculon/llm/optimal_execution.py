@@ -44,7 +44,7 @@ class OptimalExecution(calculon.CommandLine):
     sp.add_argument('num_procs', type=int,
                     help='Number of processors in execution')
     sp.add_argument('max_batch_size', type=int,
-                    help='Maximum batch size')
+                    help='Maximum batch size, will be largest multiple of DP')
     sp.add_argument('datatype', type=str, choices=System.supported_datatypes(),
                     help='The datatype to use')
     sp.add_argument('system', type=str,
@@ -74,14 +74,15 @@ class OptimalExecution(calculon.CommandLine):
           args.num_procs, tp, app.num_blocks):
         dp = Llm.get_data_parallelism(args.num_procs, tp, pp)
         for ppint in Llm.get_valid_pipeline_interleavings(app.num_blocks, pp):
-          for batch_size in Llm.get_all_batch_sizes(dp, args.max_batch_size):
-            for activation_recompute in ['full', 'attn_only', 'none']:
-              for optimizer_sharding in pick(dp>1, [True, False], [False]):
-                for tensor_par_comm_type in ['ar', 'p2p_rs_ag', 'rs_ag']:
-                  params.append((args.debug, args.num_procs, args.max_batch_size,
-                                 args.datatype, app, syst, tp, pp, dp, ppint,
-                                 batch_size, activation_recompute, optimizer_sharding,
-                                 tensor_par_comm_type, args.mbs_break))
+          batch_size = OptimalExecution.get_batch_size(dp, args.max_batch_size)
+          assert batch_size % dp == 0
+          for activation_recompute in ['full', 'attn_only', 'none']:
+            for optimizer_sharding in pick(dp>1, [True, False], [False]):
+              for tensor_par_comm_type in ['ar', 'p2p_rs_ag', 'rs_ag']:
+                params.append((args.debug, args.num_procs, args.max_batch_size,
+                               args.datatype, app, syst, tp, pp, dp, ppint,
+                               batch_size, activation_recompute, optimizer_sharding,
+                               tensor_par_comm_type, args.mbs_break))
 
     start_time = datetime.datetime.now()
     with mp.Pool(args.cpus) as pool:
@@ -138,6 +139,15 @@ class OptimalExecution(calculon.CommandLine):
         logger.info(f'Best stats: {args.stats}')
 
     return 0
+
+  @staticmethod
+  def get_batch_size(data_par, max_batch_size):
+    last = data_par
+    while True:
+      if last + data_par > max_batch_size:
+        return last
+      else:
+        last += data_par
 
   @staticmethod
   def search(debug, num_procs, max_batch_size, datatype, app, syst, tp, pp, dp,
