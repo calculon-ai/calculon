@@ -61,30 +61,28 @@
   "networks": [
     {
       "bandwidth": 450,
-      "efficiency": 0.6,
+      "efficiency": 0.65,
       "size": 8,
-      "latency": 0.000001,
+      "latency": 0.00001,
       "ops": {
-        "p2p": 1.0,
-        "reduce_scatter": 1.5,
-        "all_gather": 1.5,
-        "all_reduce": 1.0
+        "p2p": [1.0, null],
+        "reduce_scatter": [1.0, 0],
+        "all_gather": [1.0, 0],
+        "all_reduce": [1.0, 1]
       },
-      "collective_minus1_scalar": false,
       "must_be_filled": true,
       "processor_usage": 0.15
     },{
       "bandwidth": 50,
       "efficiency": 0.9,
       "size": 65536,
-      "latency": 0.000002,
+      "latency": 0.00002,
       "ops": {
-        "p2p": 1.0,
-        "reduce_scatter": 1.0,
-        "all_gather": 1.0,
-        "all_reduce": 1.0
+        "p2p": [1.0, null],
+        "reduce_scatter": [1.0, 0],
+        "all_gather": [1.0, 0],
+        "all_reduce": [1.0, 0]
       },
-      "collective_minus1_scalar": true,
       "must_be_filled": false,
       "processor_usage": 0.02
     }

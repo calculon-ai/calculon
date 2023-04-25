@@ -20,20 +20,25 @@ class Network:
   """Configuration for a network."""
 
   kKeys = set(['bandwidth', 'efficiency', 'size', 'latency', 'ops',
-               'collective_minus1_scalar', 'must_be_filled', 'processor_usage'])
+               'must_be_filled', 'processor_usage'])
   kNetOps = set(['p2p', 'reduce_scatter', 'all_gather', 'all_reduce'])
   kCollectives = set(['reduce_scatter', 'all_gather', 'all_reduce'])
 
+  class Op:
+    def __init__(self, scalar, offset):
+      self.scalar = scalar
+      self.offset = offset
+
   @staticmethod
-  def _valid_op(op, eff):
-    valid = True
-    if op not in Network.kNetOps:
-      print(f'Invalid network op: {op}')
-      valid = False
-    if eff <= 0.0:
-      print(f'Invalid network eff: {eff}')
-      valid = False
-    return valid
+  def _parse_op(op, scalar, offset):
+    assert op in Network.kNetOps, f'Invalid network op: {op}'
+    assert scalar > 0.0, f'Invalid network scalar for {op}: {scalar}'
+    if op in Network.kCollectives:
+      assert offset is not None, f'Must give offset for {op}'
+      return Network.Op(scalar, offset)
+    else:
+      assert offset is None, f'Can\'t give offset for {op}'
+      return Network.Op(scalar, 0)
 
   def __init__(self, cfg):
     assert Network.kKeys == set(cfg.keys())
@@ -44,11 +49,11 @@ class Network:
     self._size = cfg['size']
     assert self._size >= 0
     self._latency = cfg['latency']
-    self._ops = cfg['ops']
-    assert all(Network._valid_op(k, v) for k, v in self._ops.items())
+    self._ops = {}
+    for op in cfg['ops']:
+      self._ops[op] = Network._parse_op(
+        op, cfg['ops'][op][0], cfg['ops'][op][1])
     assert set(self._ops.keys()) == Network.kNetOps
-    self._col_m1_scalar = cfg['collective_minus1_scalar']
-    assert isinstance(self._col_m1_scalar, bool)
     self._must_be_filled = cfg['must_be_filled']
     self._proc_usage = cfg['processor_usage']
     assert self._proc_usage >= 0.0 and self._proc_usage < 1.0
@@ -76,14 +81,19 @@ class Network:
     Returns:
       time (float)    : time needed for operation
     """
-    if op == 'p2p':
+    if op not in Network.kCollectives:
       assert comm_size == 2
     else:
       assert comm_size >= 2
     assert op in Network.kNetOps
     assert op_size >= 0
-    if self._col_m1_scalar and op in Network.kCollectives:
-      op_size *= ((comm_size - 1) / comm_size)
-    op_size *= self._ops[op]
-    op_time = op_size / (self._bw * self._eff)
-    return self._latency + op_time
+
+    # Scales the op_size by the scalar
+    op_size *= self._ops[op].scalar
+
+    # Scales the op_size by the op offset
+    chunk_size = 1 / comm_size * op_size
+    op_size += chunk_size * self._ops[op].offset
+
+    # Calculates time based on raw bandwidth,  bandwidth efficiency, and latency
+    return self._latency + op_size / (self._bw * self._eff)
