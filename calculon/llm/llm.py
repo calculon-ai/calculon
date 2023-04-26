@@ -2115,7 +2115,7 @@ class Llm:
       f"{human_format(self.get_mem_tier1_cap_req(), 'bytes')};\n" \
       f"Mem tier2 capacity requirement: " \
       f"{human_format(self.get_mem_tier2_cap_req(), 'bytes')};\n" \
-      f"Mem Tier2 BW for offload: " \
+      f"Mem tier2 BW for offload: " \
       f"{human_format(self.get_offload_mem_bw_req(), 'bandwidth')};\n" \
       f"Compute efficiency: {self.get_compute_efficiency()*100:.2f}%;\n" \
       f"System efficiency: {self.get_system_efficiency()*100:.2f}%;\n" \
