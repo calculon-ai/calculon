@@ -28,8 +28,9 @@ class Layer:
   def __init__(self, name, sys, fw_flops=0, agrad_flops=0, wgrad_flops=0,
                inputs_size=0, output_size=0, activation_space=0,
                activation_grads=0, weight_space=0, weight_grads=0,
-               optim_space=0, needs_recompute=False, activation_reused=False,
-               activation_stored=True, output_stored=True):
+               optim_space=0, needs_recompute=False, needs_recomm=False,
+               activation_reused=False, activation_stored=True,
+               output_stored=True):
     self.name = name
     self.sys = sys
     self.fw_flops = fw_flops
@@ -48,6 +49,7 @@ class Layer:
 
     # Add optimizations and parallelization split
     self.needs_recompute = needs_recompute
+    self.needs_recomm = needs_recomm
     self.activation_reused=activation_reused
     self.activation_stored = activation_stored
     self.output_stored = output_stored
@@ -63,12 +65,42 @@ class Layer:
       'fw_flops': self.get_fw_flops(),
       'fw_mem_accessed': self.get_fw_mem_accessed(),
       'fw_arithmetic_intensity': self.get_fw_arithmetic_intensity(),
+      'baseblock_fw_tp_comm_tile': self.get_comm_tile('fw', baseblock=True),
+      'edgeblock_fw_tp_comm_tile': self.get_comm_tile('fw', baseblock=False),
+      'baseblock_fw_tp_comm_size': self.get_comm_bytes('fw', baseblock=True),
+      'edgeblock_fw_tp_comm_size': self.get_comm_bytes('fw', baseblock=False),
+      'baseblock_fw_tp_comm_time': self.compute_net_time('fw', baseblock=True),
+      'edgeblock_fw_tp_comm_time': self.compute_net_time('fw',baseblock=False),
+      'baseblock_fw_tp_comm_time_exposed': self.get_exposed_net_time(
+        'fw', baseblock=True),
+      'edgeblock_fw_tp_comm_time_exposed': self.get_exposed_net_time(
+        'fw', baseblock=False),
       'agrad_flops': self.get_agrad_flops(),
       'agrad_mem_accessed': self.get_agrad_mem_accessed(),
       'agrad_arithmetic_intensity': self.get_agrad_arithmetic_intensity(),
+      'baseblock_bw_tp_comm_tile': self.get_comm_tile('agrad', baseblock=True),
+      'edgeblock_bw_tp_comm_tile': self.get_comm_tile('agrad', baseblock=False),
+      'baseblock_bw_tp_comm_size': self.get_comm_bytes('agrad', baseblock=True),
+      'edgeblock_bw_tp_comm_size': self.get_comm_bytes('agrad', baseblock=False),
+      'baseblock_bw_tp_comm_time': self.compute_net_time('agrad', baseblock=True),
+      'edgeblock_bw_tp_comm_time': self.compute_net_time('agrad', baseblock=False),
+      'baseblock_bw_tp_comm_time_exposed': self.get_exposed_net_time(
+        'agrad', baseblock=True),
+      'edgeblock_bw_tp_comm_time_exposed': self.get_exposed_net_time(
+        'agrad', baseblock=False),
       'wgrad_flops': self.get_wgrad_flops(),
       'wgrad_mem_accessed': self.get_wgrad_mem_accessed(),
       'wgrad_arithmetic_intensity': self.get_wgrad_arithmetic_intensity(),
+      'baseblock_recomm_tile': self.get_comm_tile('wgrad', baseblock=True),
+      'edgeblock_recomm_tile': self.get_comm_tile('wgrad', baseblock=False),
+      'baseblock_recomm_size': self.get_comm_bytes('wgrad', baseblock=True),
+      'edgeblock_recomm_size': self.get_comm_bytes('wgrad', baseblock=False),
+      'baseblock_recomm_time': self.compute_net_time('wgrad', baseblock=True),
+      'edgeblock_recomm_time': self.compute_net_time('wgrad', baseblock=False),
+      'baseblock_recomm_time_exposed': self.get_exposed_net_time(
+        'wgrad', baseblock=True),
+      'edgeblock_recomm_time_exposed': self.get_exposed_net_time(
+        'wgrad', baseblock=False),
       'optim_flops': self.get_optim_step_flops(),
       'optim_mem_accessed': self.get_optim_step_mem_accessed(),
       'optim_arithmetic_intensity': self.get_optim_step_arithmetic_intensity(),
@@ -133,6 +165,9 @@ class Layer:
 
   def get_recompute_flag(self):
     return self.needs_recompute
+
+  def get_recomm_flag(self):
+    return self.needs_recomm
 
   def reuses_activation(self):
     return self.activation_reused
@@ -243,6 +278,12 @@ class Layer:
   def use_matrix_engine(self):
     return False
 
+  def get_comm_bytes(self, stage, baseblock=True):
+    return 0
+
+  def get_comm_tile(self, stage, baseblock=True):
+    return self.get_comm_bytes(stage, baseblock)
+
   def compute_flops_time(self, stage):
     if stage == "fw":
       flops = self.get_fw_flops()
@@ -315,16 +356,16 @@ class Linear(Layer):
 
 class LinearOverlapped(Layer):
   def __init__(self, name, sys, batch_seq, c_in, c_out, tensor_par_comm_type,
-               num_tiles, net_id, num_peers, wgrad_ag_act=False,
-               conjugate=False, in_network_reduction=False,
-               needs_recompute=False, activation_reused=False,
-               activation_stored=True, output_stored=True):
+               num_tiles, net_id, num_peers, conjugate=False,
+               in_network_reduction=False,
+               needs_recompute=False, needs_recomm=False,
+               activation_reused=False, activation_stored=True,
+               output_stored=True):
     m, n, k = batch_seq, c_in, c_out
     self.tensor_par_comm_type = tensor_par_comm_type
     self.num_tiles = num_tiles
     self.net = sys.get_network(net_id)
     self.num_peers = num_peers
-    self.wgrad_ag_act = wgrad_ag_act
     self.conjugate = conjugate
     self.in_network_reduction = in_network_reduction
     if self.tensor_par_comm_type == 'rs_ag':
@@ -350,12 +391,16 @@ class LinearOverlapped(Layer):
     else:
       if not conjugate:
         # AllReduce case
+        assert k % self.num_peers == 0
+        k = k // self.num_peers
         act_space = m * n
         act_grad_space = 0
         act_net_buffer = m * n // num_tiles
         act_grad_net_buffer = 0
       else:
         # Identityy case
+        assert n % self.num_peers == 0
+        n = n // self.num_peers
         act_space = 0
         act_grad_space = m * k
         act_net_buffer = 0
@@ -374,6 +419,7 @@ class LinearOverlapped(Layer):
                      activation_grads=act_grad_space + act_grad_net_buffer,
                      optim_space=2*n*k,
                      needs_recompute=needs_recompute,
+                     needs_recomm=needs_recomm,
                      activation_reused=activation_reused,
                      activation_stored=activation_stored,
                      output_stored=output_stored)
@@ -381,12 +427,52 @@ class LinearOverlapped(Layer):
   def use_matrix_engine(self):
     return True
 
-  def get_comm_bytes(self):
-    if self.conjugate:
-      comm_size = self.output_size * self.bytes_per_element
-    else:
-      comm_size = self.inputs_size * self.bytes_per_element
-    return comm_size
+  def get_comm_bytes(self, stage, baseblock=True):
+    if self.num_peers == 1:
+      return 0
+    split_comm = (self.tensor_par_comm_type == 'rs_ag') or (
+      (self.tensor_par_comm_type == 'p2p_rs_ag') and not baseblock)
+    ag_comm_size = self.inputs_size * self.bytes_per_element
+    ar_rs_comm_size = self.output_size * self.bytes_per_element
+    if stage == 'fw':
+      if self.conjugate:
+        # ReduceScatter or AllReduce on FW
+        return ar_rs_comm_size
+      else:
+        if split_comm:
+          # AllGather on FW
+          return ag_comm_size
+        else:
+          # Identity on FW
+          return 0
+    if stage == 'agrad':
+      # Comm sizes during FW and BW pass are the same
+      if not self.conjugate:
+        # ReduceScatter or AllReduce on BW
+        return ag_comm_size
+      else:
+        if split_comm:
+          # AllGather on BW
+          return ar_rs_comm_size
+        else:
+          # Identity on BW
+          return 0
+    if stage == 'wgrad':
+      if self.needs_recomm:
+        return self.get_comm_bytes('fw', baseblock)
+      else:
+        return 0
+    if stage == 'optim':
+      return 0
+
+  def get_comm_flops(self, stage, baseblock=True):
+    return self.get_comm_bytes(stage, baseblock) / self.bytes_per_element
+
+  def get_num_tiles(self):
+    return self.num_tiles
+
+  def get_comm_tile(self, stage, baseblock=True):
+    return self.get_comm_bytes(stage, baseblock) / self.get_num_tiles()
 
   def compute_net_time(self, stage, baseblock=True):
     if self.num_peers == 1:
@@ -396,41 +482,54 @@ class LinearOverlapped(Layer):
     if self.conjugate:
       if split_comm:
         # ReduceScatter case
-        fw_net_time = self.net.time('reduce_scatter',
-          self.get_comm_bytes(), self.num_peers)
-        bw_net_time = self.net.time('all_gather',
-          self.get_comm_bytes(), self.num_peers)
+        fw_comm_type = 'reduce_scatter'
+        bw_comm_type = 'all_gather'
       else:
         #AllReduce case
-        fw_net_time = self.net.time('all_reduce',
-          self.get_comm_bytes(), self.num_peers)
-        bw_net_time = 0
+        fw_comm_type = 'all_reduce'
+        bw_comm_type = None
       if not self.in_network_reduction:
-        fw_flops = self.get_comm_bytes() * (self.num_peers - 1) / self.num_peers
-        fw_net_time += fw_flops / self.sys.get_vector_throughput(fw_flops)
+        fw_flops = self.get_comm_flops(stage, baseblock) * (
+          self.num_peers - 1) / self.num_peers
+        fw_flop_time = fw_flops / self.sys.get_vector_throughput(fw_flops)
+      else:
+        fw_flop_time = 0
+      bw_flop_time = 0
     else:
       if split_comm:
         #AllGather case
-        fw_net_time = self.net.time('all_gather',
-          self.get_comm_bytes(), self.num_peers)
-        bw_net_time = self.net.time('reduce_scatter',
-          self.get_comm_bytes(), self.num_peers)
+        fw_comm_type = 'all_gather'
+        bw_comm_type = 'reduce_scatter'
       else:
-        # Identityy case
-        fw_net_time = 0
-        bw_net_time = self.net.time('all_reduce',
-          self.get_comm_bytes(), self.num_peers)
+        # Identity case
+        fw_comm_type = None
+        bw_comm_type = 'all_reduce'
+      fw_flop_time = 0
       if not self.in_network_reduction:
-        bw_flops = self.get_comm_bytes() * (self.num_peers - 1) / self.num_peers
-        bw_net_time += bw_flops / self.sys.get_vector_throughput(bw_flops)
+        bw_flops = self.get_comm_flops(stage, baseblock) * (
+          self.num_peers - 1) / self.num_peers
+        bw_flop_time = bw_flops / self.sys.get_vector_throughput(bw_flops)
+      else:
+        bw_flop_time = 0
     if stage == 'fw':
-      return fw_net_time
+      if fw_comm_type == None:
+        return 0
+      else:
+        fw_net_time = self.net.time(
+          fw_comm_type, self.get_comm_bytes(stage, baseblock), self.num_peers)
+        return fw_net_time + fw_flop_time
     if stage == 'agrad':
-      return bw_net_time
+      if bw_comm_type == None:
+        return 0
+      else:
+        bw_net_time = self.net.time(
+          bw_comm_type, self.get_comm_bytes(stage, baseblock), self.num_peers)
+        return bw_net_time + bw_flop_time
     if stage == 'wgrad':
-      if not self.conjugate and self.wgrad_ag_act:
-        # AllGather Redo
-        return fw_net_time
+      if self.needs_recomm and fw_comm_type:
+        # AllGather Redo (RS_AG only) or full recompute
+        return self.net.time(
+          fw_comm_type, self.get_comm_bytes(stage, baseblock), self.num_peers)
       else:
         return 0
     if stage == 'optim':
@@ -448,6 +547,8 @@ class LinearOverlapped(Layer):
     else:
       compute_time_slowed = self.sys.get_processing_time(
         flop_time_slowed, mem_time)
+      # Tiled time computed as fraction of flul time, to model high effective
+      # throughput when processing many consequitive tiles
       flop_tile = flop_time / self.num_tiles
       flop_tile_slowed = flop_time_slowed / self.num_tiles
       net_tile = net_time / self.num_tiles
@@ -472,7 +573,7 @@ class LinearOverlapped(Layer):
     return self.processing_time
 
   def get_exposed_net_time(self, stage, baseblock=True):
-    # only use after calling compute_processing_time(), otherwise it's set witth None
+    # only use after calling compute_processing_time(), otherwise it's set with None
     return self.net_exposed_time
 
 class BatchMatMul(Layer):
@@ -659,7 +760,7 @@ class TPComm(Layer):
 
   def __init__(self, name, sys, act_size, net_id, num_peers, tensor_par_comm_type,
                conjugate=False, in_network_reduction=False,
-               needs_recompute=False, activation_reused=False,
+               needs_recomm=False, activation_reused=False,
                activation_stored=True, output_stored=True):
     self.net = sys.get_network(net_id)
     self.num_peers = num_peers
@@ -698,7 +799,7 @@ class TPComm(Layer):
                      output_size=out_size,
                      activation_space=in_size,
                      activation_grads=out_size,
-                     needs_recompute=needs_recompute,
+                     needs_recomm=needs_recomm,
                      activation_reused=activation_reused,
                      activation_stored=activation_stored,
                      output_stored=output_stored)
@@ -737,42 +838,66 @@ class TPComm(Layer):
     else:
       return super().get_agrad_mem_accessed()
 
-  def get_comm_bytes(self):
-    return self.comm_size * self.bytes_per_element
+  def get_comm_bytes(self, stage, baseblock=True):
+    if self.num_peers == 1:
+      return 0
+    split_comm = (self.tensor_par_comm_type == 'rs_ag') or (
+      (self.tensor_par_comm_type == 'p2p_rs_ag') and not baseblock)
+    if (not split_comm and (self.conjugate and stage == 'agrad' or
+        not self.conjugate and stage == 'fw')):
+      # Identity FW or AllReduce BW
+      return 0
+    else:
+      if stage == 'fw' or stage == 'agrad':
+        return self.comm_size * self.bytes_per_element
+      if stage == 'wgrad' and self.needs_recomm and (
+          split_comm or self.conjugate):
+        # with AG Redo, we need recomm both on FW pass (not self.conjugate)
+        # and BW pass (self.conjugate)
+        return self.comm_size * self.bytes_per_element
+      else:
+        # optim and wgrad stage has no comm if no ag_redo flag for RS_AG
+        return 0
 
   def compute_net_time(self, stage, baseblock=True):
     if self.num_peers == 1:
       return 0
     split_comm = (self.tensor_par_comm_type == 'rs_ag') or (
       (self.tensor_par_comm_type == 'p2p_rs_ag') and not baseblock)
+    net_compute_time = super().compute_processing_time(stage)
     if split_comm:
       if self.conjugate:
         # ReduceScatter case
         fw_net_time = self.net.time('reduce_scatter',
-          self.get_comm_bytes(), self.num_peers)
+          self.get_comm_bytes(stage, baseblock), self.num_peers)
         bw_net_time = self.net.time('all_gather',
-          self.get_comm_bytes(), self.num_peers)
+          self.get_comm_bytes(stage, baseblock), self.num_peers)
       else:
         #AllGather case
         fw_net_time = self.net.time('all_gather',
-          self.get_comm_bytes(), self.num_peers)
+          self.get_comm_bytes(stage, baseblock), self.num_peers)
         bw_net_time = self.net.time('reduce_scatter',
-          self.get_comm_bytes(), self.num_peers)
+          self.get_comm_bytes(stage, baseblock), self.num_peers)
     else:
       if self.conjugate:
         fw_net_time = self.net.time('all_reduce',
-          self.get_comm_bytes(), self.num_peers)
+          self.get_comm_bytes(stage, baseblock), self.num_peers)
         bw_net_time = 0
       else:
         fw_net_time = 0
         bw_net_time = self.net.time('all_reduce',
-          self.get_comm_bytes(), self.num_peers)
+          self.get_comm_bytes(stage, baseblock), self.num_peers)
     if stage == 'fw':
-      return fw_net_time
+      return fw_net_time + net_compute_time
     elif stage == 'agrad':
-      return bw_net_time
+      return bw_net_time + net_compute_time
     elif stage == 'wgrad':
-      return 0
+      # with AG Redo, we need recomm both on FW pass (not self.conjugate)
+      # and BW pass (self.conjugate)
+      if self.needs_recomm:
+        return fw_net_time + net_compute_time
+      else:
+        return 0
     elif stage == 'optim':
       return 0
     else:
@@ -782,3 +907,6 @@ class TPComm(Layer):
   def get_exposed_net_time(self, stage, baseblock=True):
     # only use after calling compute_processing_time(), otherwise it's set witth None
     return self.compute_net_time(stage, baseblock)
+
+  def compute_processing_time(self, stage):
+    return 0

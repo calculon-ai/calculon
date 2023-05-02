@@ -283,10 +283,12 @@ class Llm:
     self._block_optim_mem_time = None
     self._block_optim_time = None
 
-    self._block_tp_comm_count = None
-    self._block_fw_tp_size = None
-    self._block_bw_tp_size = None
-    self._block_recomm_size = None
+    self._baseblock_fw_tp_size = None
+    self._edgeblock_fw_tp_size = None
+    self._baseblock_agrad_tp_size = None
+    self._edgeblock_agrad_tp_size = None
+    self._baseblock_recomm_size = None
+    self._edgeblock_recomm_size = None
     self._block_fw_pp_size = None
     self._block_bw_pp_size = None
     self._block_dp_size = None
@@ -354,10 +356,6 @@ class Llm:
     self._wgrad_mem_accessed = None
     self._wgrad_mem_time = None
     self._wgrad_time = None
-    self._baseblock_wgrad_tp_time = None
-    self._edgeblock_wgrad_tp_time = None
-    self._baseblock_wgrad_tp_time_exposed = None
-    self._edgeblock_wgrad_tp_time_exposed = None
     self._optim_flops = None
     self._optim_flops_time = None
     self._optim_mem_accessed = None
@@ -410,19 +408,18 @@ class Llm:
     j['block_wgrad_mem_accessed'] = self._block_wgrad_mem_accessed
     j['block_wgrad_mem_time'] = self._block_wgrad_mem_time
     j['block_wgrad_time'] = self._block_wgrad_time
-    j['baseblock_wgrad_tp_time'] = self._baseblock_wgrad_tp_time
-    j['edgeblock_wgrad_tp_time'] = self._edgeblock_wgrad_tp_time
-    j['baseblock_wgrad_tp_time_exposed'] = self._baseblock_wgrad_tp_time_exposed
-    j['edgeblock_wgrad_tp_time_exposed'] = self._edgeblock_wgrad_tp_time_exposed
     j['block_optim_flops'] = self._block_optim_flops
     j['block_optim_flops_time'] = self._block_optim_flops_time
     j['block_optim_mem_accessed'] = self._block_optim_mem_accessed
     j['block_optim_mem_time'] = self._block_optim_mem_time
     j['block_optim_time'] = self._block_optim_time
 
-    j['block_fw_tp_size'] = self._block_fw_tp_size
-    j['block_bw_tp_size'] = self._block_bw_tp_size
-    j['block_recomm_size'] = self._block_recomm_size
+    j['baseblock_fw_tp_size'] = self._baseblock_fw_tp_size
+    j['edgeblock_fw_tp_size'] = self._edgeblock_fw_tp_size
+    j['baseblock_bw_tp_size'] = self._baseblock_agrad_tp_size
+    j['edgeblock_bw_tp_size'] = self._edgeblock_agrad_tp_size
+    j['baseblock_recomm_size'] = self._baseblock_recomm_size
+    j['edgeblock_recomm_size'] = self._edgeblock_recomm_size
     j['block_fw_pp_size'] = self._block_fw_pp_size
     j['block_bw_pp_size'] = self._block_bw_pp_size
     j['block_dp_size'] = self._block_dp_size
@@ -487,7 +484,7 @@ class Llm:
     recompute_flag = self.exe.activation_recompute == "full"
     recompute_attn_flag = self.exe.activation_recompute in \
       ["full", "attn_only"]
-    recompute_ag_flag = recompute_flag or self.exe.seq_par_ag_redo
+    recompute_ag_flag = recompute_attn_flag or self.exe.seq_par_ag_redo
 
     assert self.app.hidden % self.exe.tensor_par == 0, (
       f"We should split hidden={self.app.hidden} between"
@@ -531,7 +528,7 @@ class Llm:
         tensor_par_comm_type=self.exe.tensor_par_comm_type,
         conjugate=False,
         in_network_reduction=self.exe.in_network_reduction,
-        needs_recompute=recompute_ag_flag))
+        needs_recomm=recompute_ag_flag))
       self._llm_block.append(Fork(
         "AttnBlock_Multihead_Fork",
         self.sys,
@@ -609,9 +606,9 @@ class Llm:
           self.exe.tensor_par,
           self.exe.tensor_par_net,
           self.exe.tensor_par,
-          wgrad_ag_act=self.exe.seq_par_ag_redo,
           conjugate=False,
-          needs_recompute=recompute_flag))
+          needs_recompute=recompute_flag,
+          needs_recomm=recompute_ag_flag))
       elif self.exe.attention_type == 'multiquery':
         self._llm_block.append(LinearOverlapped(
           "AttnBlock_Query_AG",
@@ -623,9 +620,9 @@ class Llm:
           self.exe.tensor_par,
           self.exe.tensor_par_net,
           self.exe.tensor_par,
-          wgrad_ag_act=self.exe.seq_par_ag_redo,
           conjugate=False,
-          needs_recompute=recompute_flag))
+          needs_recompute=recompute_flag,
+          needs_recomm=recompute_ag_flag))
         self._llm_block.append(Fork(
           "AttnBlock_KV_Fork",
           self.sys,
@@ -708,7 +705,7 @@ class Llm:
         tensor_par_comm_type=self.exe.tensor_par_comm_type,
         conjugate=True,
         in_network_reduction=self.exe.in_network_reduction,
-        needs_recompute=recompute_flag,
+        needs_recomm=recompute_flag,
         # We don't store input to RS/AR
         activation_stored=False))
     else:
@@ -723,7 +720,8 @@ class Llm:
         self.exe.tensor_par_net,
         self.exe.tensor_par,
         conjugate=True,
-        needs_recompute=recompute_flag))
+        needs_recompute=recompute_flag,
+        needs_recomm=recompute_flag))
     self._llm_block.append(DropOut(
       "AttnBlock_DropOut",
       self.sys,
@@ -780,7 +778,7 @@ class Llm:
         tensor_par_comm_type=self.exe.tensor_par_comm_type,
         conjugate=False,
         in_network_reduction=self.exe.in_network_reduction,
-        needs_recompute=recompute_ag_flag))
+        needs_recomm=recompute_ag_flag))
       self._llm_block.append(Linear(
         "MlpBlock_Mlp1",
         self.sys,
@@ -802,9 +800,9 @@ class Llm:
         self.exe.tensor_par,
         self.exe.tensor_par_net,
         self.exe.tensor_par,
-        wgrad_ag_act=self.exe.seq_par_ag_redo,
         conjugate=False,
-        needs_recompute=recompute_flag))
+        needs_recompute=recompute_flag,
+        needs_recomm=recompute_ag_flag))
     self._llm_block.append(GeLU(
       "MlpBlock_GeLU",
       self.sys,
@@ -831,7 +829,7 @@ class Llm:
         tensor_par_comm_type=self.exe.tensor_par_comm_type,
         conjugate=True,
         in_network_reduction=self.exe.in_network_reduction,
-        needs_recompute=recompute_flag,
+        needs_recomm=recompute_flag,
         # We don't store input to RS/AR
         activation_stored=False))
     else:
@@ -846,7 +844,8 @@ class Llm:
         self.exe.tensor_par_net,
         self.exe.tensor_par,
         conjugate=True,
-        needs_recompute=recompute_flag))
+        needs_recompute=recompute_flag,
+        needs_recomm=recompute_flag))
     self._llm_block.append(DropOut(
       "MlpBlock_DropOut",
       self.sys,
@@ -984,6 +983,8 @@ class Llm:
     self._block_fw_mem_accessed = 0
     self._block_fw_mem_time = 0
     self._block_fw_time = 0
+    self._baseblock_fw_tp_size = 0
+    self._edgeblock_fw_tp_size = 0
     self._baseblock_fw_tp_time = 0
     self._edgeblock_fw_tp_time = 0
     self._baseblock_fw_tp_time_exposed = 0
@@ -997,6 +998,8 @@ class Llm:
     self._block_re_mem_accessed = 0
     self._block_re_mem_time = 0
     self._block_re_time = 0
+    self._baseblock_recomm_size = 0
+    self._edgeblock_recomm_size = 0
     self._baseblock_recomm_time = 0
     self._edgeblock_recomm_time = 0
     self._baseblock_recomm_time_exposed = 0
@@ -1006,6 +1009,8 @@ class Llm:
     self._block_agrad_mem_accessed = 0
     self._block_agrad_mem_time = 0
     self._block_agrad_time = 0
+    self._baseblock_agrad_tp_size = 0
+    self._edgeblock_agrad_tp_size = 0
     self._baseblock_agrad_tp_time = 0
     self._edgeblock_agrad_tp_time = 0
     self._baseblock_agrad_tp_time_exposed = 0
@@ -1015,10 +1020,6 @@ class Llm:
     self._block_wgrad_mem_accessed = 0
     self._block_wgrad_mem_time = 0
     self._block_wgrad_time = 0
-    self._baseblock_wgrad_tp_time = 0
-    self._edgeblock_wgrad_tp_time = 0
-    self._baseblock_wgrad_tp_time_exposed = 0
-    self._edgeblock_wgrad_tp_time_exposed = 0
     self._block_optim_flops = 0
     self._block_optim_flops_time = 0
     self._block_optim_mem_accessed = 0
@@ -1037,6 +1038,10 @@ class Llm:
       self._block_fw_mem_accessed += layer.get_fw_mem_accessed()
       self._block_fw_mem_time += layer.compute_mem_time("fw")
       self._block_fw_time += layer.compute_processing_time("fw")
+      self._baseblock_fw_tp_size += layer.get_comm_bytes("fw",
+        baseblock=True)
+      self._edgeblock_fw_tp_size += layer.get_comm_bytes("fw",
+        baseblock=False)
       self._baseblock_fw_tp_time += layer.compute_net_time("fw",
         baseblock=True)
       self._edgeblock_fw_tp_time += layer.compute_net_time("fw",
@@ -1052,19 +1057,28 @@ class Llm:
           self._block_re_mem_accessed += self._block_fw_mem_accessed
           self._block_re_mem_time += self._block_fw_mem_time
           self._block_re_time += layer.compute_processing_time("fw")
-          self._baseblock_recomm_time += layer.compute_net_time("fw",
+        if layer.get_recomm_flag():
+          self._baseblock_recomm_size += layer.get_comm_bytes("wgrad",
             baseblock=True)
-          self._edgeblock_recomm_time += layer.compute_net_time("fw",
+          self._edgeblock_recomm_size += layer.get_comm_bytes("wgrad",
+            baseblock=False)
+          self._baseblock_recomm_time += layer.compute_net_time("wgrad",
+            baseblock=True)
+          self._edgeblock_recomm_time += layer.compute_net_time("wgrad",
             baseblock=False)
           self._baseblock_recomm_time_exposed += layer.get_exposed_net_time(
-            "fw", baseblock=True)
+            "wgrad", baseblock=True)
           self._edgeblock_recomm_time_exposed += layer.get_exposed_net_time(
-            "fw", baseblock=False)
+            "wgrad", baseblock=False)
         self._block_agrad_flops += layer.get_agrad_flops()
         self._block_agrad_flops_time += layer.compute_flops_time("agrad")
         self._block_agrad_mem_accessed += layer.get_agrad_mem_accessed()
         self._block_agrad_mem_time += layer.compute_mem_time("agrad")
         self._block_agrad_time += layer.compute_processing_time("agrad")
+        self._baseblock_agrad_tp_size += layer.get_comm_bytes("agrad",
+          baseblock=True)
+        self._edgeblock_agrad_tp_size += layer.get_comm_bytes("agrad",
+          baseblock=False)
         self._baseblock_agrad_tp_time += layer.compute_net_time("agrad",
           baseblock=True)
         self._edgeblock_agrad_tp_time += layer.compute_net_time("agrad",
@@ -1078,14 +1092,6 @@ class Llm:
         self._block_wgrad_mem_accessed += layer.get_wgrad_mem_accessed()
         self._block_wgrad_mem_time += layer.compute_mem_time("wgrad")
         self._block_wgrad_time += layer.compute_processing_time("wgrad")
-        self._baseblock_wgrad_tp_time += layer.compute_net_time("wgrad",
-          baseblock=True)
-        self._edgeblock_wgrad_tp_time += layer.compute_net_time("wgrad",
-          baseblock=False)
-        self._baseblock_wgrad_tp_time_exposed += layer.get_exposed_net_time(
-          "wgrad", baseblock=True)
-        self._edgeblock_wgrad_tp_time_exposed += layer.get_exposed_net_time(
-          "wgrad", baseblock=False)
         self._block_optim_flops += layer.get_optim_step_flops()
         self._block_optim_flops_time += layer.compute_flops_time("optim")
         self._block_optim_mem_accessed += layer.get_optim_step_mem_accessed()
@@ -1110,6 +1116,8 @@ class Llm:
 
       self.log.debug("%s %s %s", layer.name, 'Recompute flag:',
                      str(layer.get_recompute_flag()))
+      self.log.debug("%s %s %s", layer.name, 'Recomm flag:',
+                     str(layer.get_recomm_flag()))
       self.log.debug("%s %s %s", layer.name, 'Stores activation:',
                      str(layer.stores_activation()))
       self.log.debug("%s %s %s", layer.name, 'Reuses activation:',
@@ -1126,10 +1134,24 @@ class Llm:
                      human_format(layer.weight_space, 'base2'))
       self.log.debug("%s %s %s", layer.name, 'FW mem:',
                      human_format(layer.get_fw_mem_accessed(), 'bytes'))
-      self.log.debug("%s %s %.3e", layer.name, 'FW time:',
-                     layer.compute_processing_time("fw"))
+      self.log.debug("%s %s %s", layer.name, 'FW baseblock comm tile size:',
+                     human_format(layer.get_comm_tile("fw", baseblock=True),
+                     'bytes'))
+      self.log.debug("%s %s %s", layer.name, 'FW edgeblock comm tile size:',
+                     human_format(layer.get_comm_tile("fw", baseblock=False),
+                     'bytes'))
+      self.log.debug("%s %s %s", layer.name, 'FW baseblock comm size:',
+                     human_format(layer.get_comm_bytes("fw", baseblock=True),
+                     'bytes'))
+      self.log.debug("%s %s %s", layer.name, 'FW edgeblock comm size:',
+                     human_format(layer.get_comm_bytes("fw", baseblock=False),
+                     'bytes'))
+      self.log.debug("%s %s %.3e", layer.name, 'FW net link time:',
+                     layer.compute_net_time("fw"))
       self.log.debug("%s %s %.3e", layer.name, 'FW net exposed time:',
                      layer.get_exposed_net_time("fw"))
+      self.log.debug("%s %s %.3e", layer.name, 'FW time:',
+                     layer.compute_processing_time("fw"))
       self.log.debug("%s %s %s", layer.name, 'BW flops:',
                      human_format(
                       layer.get_agrad_flops() + layer.get_wgrad_flops(),
@@ -1144,11 +1166,40 @@ class Llm:
                      human_format(
                       layer.get_agrad_mem_accessed() +
                       layer.get_wgrad_mem_accessed(), 'bytes'))
+      self.log.debug("%s %s %s", layer.name, 'BW baseblock comm tile size:',
+                     human_format(layer.get_comm_tile("agrad", baseblock=True),
+                     'bytes'))
+      self.log.debug("%s %s %s", layer.name, 'BW edgeblock comm tile size:',
+                     human_format(layer.get_comm_tile("agrad", baseblock=False),
+                     'bytes'))
+      self.log.debug("%s %s %s", layer.name, 'BW baseblock comm size:',
+                     human_format(layer.get_comm_bytes("agrad", baseblock=True),
+                     'bytes'))
+      self.log.debug("%s %s %s", layer.name, 'BW edgeblock comm size:',
+                     human_format(layer.get_comm_bytes("agrad", baseblock=False),
+                     'bytes'))
+      self.log.debug("%s %s %.3e", layer.name, 'BW net link time:',
+                     layer.compute_net_time("agrad"))
+      self.log.debug("%s %s %.3e", layer.name, 'BW net exposed time:',
+                     layer.get_exposed_net_time("agrad"))
       self.log.debug("%s %s %.3e", layer.name, 'BW time:',
                      layer.compute_processing_time("agrad") +
                      layer.compute_processing_time("wgrad"))
-      self.log.debug("%s %s %.3e", layer.name, 'BW net exposed time:',
-                     layer.get_exposed_net_time("agrad") +
+      self.log.debug("%s %s %s", layer.name, 'Recomm baseblock comm tile size:',
+                     human_format(layer.get_comm_tile("wgrad", baseblock=True),
+                     'bytes'))
+      self.log.debug("%s %s %s", layer.name, 'Recomm edgeblock comm tile size:',
+                     human_format(layer.get_comm_tile("wgrad", baseblock=False),
+                     'bytes'))
+      self.log.debug("%s %s %s", layer.name, 'Recomm baseblock comm size:',
+                     human_format(layer.get_comm_bytes("wgrad", baseblock=True),
+                     'bytes'))
+      self.log.debug("%s %s %s", layer.name, 'Recomm edgeblock comm size:',
+                     human_format(layer.get_comm_bytes("wgrad", baseblock=False),
+                     'bytes'))
+      self.log.debug("%s %s %.3e", layer.name, 'Recomm net link time:',
+                     layer.compute_net_time("wgrad"))
+      self.log.debug("%s %s %.3e", layer.name, 'Recomm net exposed time:',
                      layer.get_exposed_net_time("wgrad"))
       self.log.debug("%s %s %s", layer.name, 'Optim flops:',
                      human_format(layer.get_optim_step_flops(), 'flops'))
@@ -1202,22 +1253,26 @@ class Llm:
 
     # When training, BW sizes for TP and PP are same as FW
     if self.exe.training:
-    #  self._block_bw_tp_size = self._block_fw_tp_size
       self._block_bw_pp_size = self._block_fw_pp_size
     else:
-    #  self._block_bw_tp_size = 0
       self._block_bw_pp_size = 0
 
-    #self.log.debug("%s %s", 'TP comm FW size:',
-    #               human_format(self._block_fw_tp_size, 'bytes'))
+    self.log.debug("%s %s", 'TP comm FW baseblock size:',
+                   human_format(self._baseblock_fw_tp_size, 'bytes'))
+    self.log.debug("%s %s", 'TP comm FW edgeblock size:',
+                   human_format(self._edgeblock_fw_tp_size, 'bytes'))
     self.log.debug("%s %s", 'PP comm FW size:',
                    human_format(self._block_fw_pp_size, 'bytes'))
-    #self.log.debug("%s %s", 'TP comm BW size:',
-    #               human_format(self._block_bw_tp_size, 'bytes'))
+    self.log.debug("%s %s", 'TP comm BW baseblock size:',
+                   human_format(self._baseblock_agrad_tp_size, 'bytes'))
+    self.log.debug("%s %s", 'TP comm BW edgeblock size:',
+                   human_format(self._edgeblock_agrad_tp_size, 'bytes'))
     self.log.debug("%s %s", 'PP comm BW size:',
                    human_format(self._block_bw_pp_size, 'bytes'))
-    #self.log.debug("%s %s", 'TP recomm size:',
-    #               human_format(self._block_recomm_size, 'bytes'))
+    self.log.debug("%s %s", 'TP recomm baseblock size:',
+                   human_format(self._baseblock_recomm_size, 'bytes'))
+    self.log.debug("%s %s", 'TP recomm edgeblock size:',
+                   human_format(self._edgeblock_recomm_size, 'bytes'))
 
   def _compute_batch_stats(self):
     """
@@ -1261,18 +1316,12 @@ class Llm:
         (self._baseblocks_per_chunk * self._baseblock_fw_tp_time_exposed) +
         (self._edgeblocks_per_chunk * self._edgeblock_fw_tp_time_exposed))
     tp_bw_comm_time = self.exe._num_microbatches * self._chunks_per_proc * (
-      self._baseblocks_per_chunk * (
-        self._baseblock_agrad_tp_time + self._baseblock_wgrad_tp_time) +
-      self._edgeblocks_per_chunk * (
-        self._edgeblock_agrad_tp_time + self._edgeblock_wgrad_tp_time))
+      self._baseblocks_per_chunk * self._baseblock_agrad_tp_time +
+      self._edgeblocks_per_chunk * self._edgeblock_agrad_tp_time)
     tp_bw_comm_time_exposed = \
       self.exe._num_microbatches * self._chunks_per_proc * (
-        self._baseblocks_per_chunk * (
-          self._baseblock_agrad_tp_time_exposed +
-          self._baseblock_wgrad_tp_time_exposed) +
-        self._edgeblocks_per_chunk * (
-          self._edgeblock_agrad_tp_time_exposed +
-          self._edgeblock_wgrad_tp_time_exposed))
+        self._baseblocks_per_chunk * self._baseblock_agrad_tp_time_exposed +
+        self._edgeblocks_per_chunk * self._edgeblock_agrad_tp_time_exposed)
     tp_recomm_time = self.exe._num_microbatches * self._chunks_per_proc * (
       (self._baseblocks_per_chunk * self._baseblock_recomm_time) +
       (self._edgeblocks_per_chunk * self._edgeblock_recomm_time))
@@ -1323,16 +1372,14 @@ class Llm:
       self._edgeblock_fw_tp_time_exposed)
     self.log.debug("%s %s", 'TP comm FW exposed time:', tp_fw_comm_time_exposed)
     self.log.debug("%s %s", 'TP comm baseblock BW time:',
-      self._baseblock_agrad_tp_time + self._baseblock_wgrad_tp_time)
+      self._baseblock_agrad_tp_time)
     self.log.debug("%s %s", 'TP comm edgeblock BW time:',
-      self._edgeblock_agrad_tp_time + self._edgeblock_wgrad_tp_time)
+      self._edgeblock_agrad_tp_time)
     self.log.debug("%s %s", 'TP comm BW time:', tp_bw_comm_time)
     self.log.debug("%s %s", 'TP comm baseblock BW exposed time:',
-      self._baseblock_agrad_tp_time_exposed +
-      self._baseblock_wgrad_tp_time_exposed)
+      self._baseblock_agrad_tp_time_exposed)
     self.log.debug("%s %s", 'TP comm edgeblock BW exposed time:',
-      self._edgeblock_agrad_tp_time_exposed +
-      self._edgeblock_wgrad_tp_time_exposed)
+      self._edgeblock_agrad_tp_time_exposed)
     self.log.debug("%s %s", 'TP comm BW exposed time:',
       tp_bw_comm_time_exposed)
     self.log.debug("%s %s", 'PP comm chunk FW time:', chunk_fw_pp_time)
@@ -1365,13 +1412,12 @@ class Llm:
       self._block_re_time + self._baseblock_recomm_time_exposed +
       self._block_agrad_time + self._block_wgrad_time +
       self._block_optim_time +
-      self._baseblock_agrad_tp_time + self._baseblock_wgrad_tp_time)
+      self._baseblock_agrad_tp_time)
     self._edgeblock_bw_time_no_offload = (
       self._block_re_time + self._edgeblock_recomm_time_exposed +
       self._block_agrad_time + self._block_wgrad_time +
       self._block_optim_time +
-      self._edgeblock_agrad_tp_time + self._edgeblock_wgrad_tp_time +
-      chunk_bw_pp_time)
+      self._edgeblock_agrad_tp_time + chunk_bw_pp_time)
     self._baseblock_bw_offload_overhead = max(
       0, self.get_bw_offload_time() + self._block_agrad_mem_time +
       self._block_wgrad_mem_time + self._block_optim_mem_time -
@@ -1410,10 +1456,10 @@ class Llm:
       block_dp_compute_time += self._block_optim_flops_time
     if self._dp_net == self._tp_net:
       # Can't overlap DP with TP if in the same network
-      baseblock_dp_overlap_time -= (self._baseblock_recomm_time +
-        self._baseblock_agrad_tp_time + self._baseblock_wgrad_tp_time)
-      edgeblock_dp_overlap_time -= (self._edgeblock_recomm_time +
-        self._edgeblock_agrad_tp_time + self._edgeblock_wgrad_tp_time)
+      baseblock_dp_overlap_time -= (
+        self._baseblock_recomm_time + self._baseblock_agrad_tp_time)
+      edgeblock_dp_overlap_time -= (
+        self._edgeblock_recomm_time + self._edgeblock_agrad_tp_time)
     chunk_dp_overlap_time = (
       self._baseblocks_per_chunk * baseblock_dp_overlap_time +
       self._edgeblocks_per_chunk * edgeblock_dp_overlap_time)
