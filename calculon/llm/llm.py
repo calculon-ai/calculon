@@ -98,7 +98,8 @@ class Llm:
       self.in_network_reduction = False
       assert self.tensor_par_comm_type in ['ar', 'p2p_rs_ag', 'rs_ag']
       self.tensor_par_overlap = cfg['tensor_par_overlap']
-      if self.tensor_par_overlap:
+      assert self.tensor_par_overlap in ['none', 'ring', 'pipe']
+      if self.tensor_par_overlap != 'none':
         assert self.tensor_par > 1, "We perform TP comm overlap with TP > 1"
       self._sequence_par = self.tensor_par_comm_type == 'rs_ag'
       self.seq_par_ag_redo = cfg['seq_par_ag_redo']
@@ -515,7 +516,7 @@ class Llm:
       # Activation is stored in Fork instead
       activation_stored=False,
       activation_reused=True))
-    if not self.exe.tensor_par_overlap:
+    if self.exe.tensor_par_overlap == 'none':
       self._llm_block.append(TPComm(
         "AttnBlock_F",
         self.sys,
@@ -607,6 +608,7 @@ class Llm:
           self.exe.tensor_par_net,
           self.exe.tensor_par,
           conjugate=False,
+          tp_overlap=self.exe.tensor_par_overlap,
           needs_recompute=recompute_flag,
           needs_recomm=recompute_ag_flag))
       elif self.exe.attention_type == 'multiquery':
@@ -621,6 +623,7 @@ class Llm:
           self.exe.tensor_par_net,
           self.exe.tensor_par,
           conjugate=False,
+          tp_overlap=self.exe.tensor_par_overlap,
           needs_recompute=recompute_flag,
           needs_recomm=recompute_ag_flag))
         self._llm_block.append(Fork(
@@ -685,7 +688,7 @@ class Llm:
       self.app.seq_size,
       self.app.attn_heads * self.app.attn_size // self.app.attn_heads,
       needs_recompute=recompute_flag))
-    if not self.exe.tensor_par_overlap:
+    if self.exe.tensor_par_overlap == 'none':
       self._llm_block.append(Linear(
         "AttnBlock_MLP",
         self.sys,
@@ -720,6 +723,7 @@ class Llm:
         self.exe.tensor_par_net,
         self.exe.tensor_par,
         conjugate=True,
+        tp_overlap=self.exe.tensor_par_overlap,
         needs_recompute=recompute_flag,
         needs_recomm=recompute_flag))
     self._llm_block.append(DropOut(
@@ -763,7 +767,7 @@ class Llm:
       # Activation is stored in Fork instead
       activation_stored=False,
       activation_reused=True))
-    if not self.exe.tensor_par_overlap:
+    if self.exe.tensor_par_overlap == 'none':
       self._llm_block.append(TPComm(
         "MlpBlock_F",
         self.sys,
@@ -801,6 +805,7 @@ class Llm:
         self.exe.tensor_par_net,
         self.exe.tensor_par,
         conjugate=False,
+        tp_overlap=self.exe.tensor_par_overlap,
         needs_recompute=recompute_flag,
         needs_recomm=recompute_ag_flag))
     self._llm_block.append(GeLU(
@@ -809,7 +814,7 @@ class Llm:
       self.app.feedforward * self._batch_seq // self.exe.tensor_par,
       needs_recompute=recompute_flag,
       fused=self.exe.fused_activation))
-    if not self.exe.tensor_par_overlap:
+    if self.exe.tensor_par_overlap == 'none':
       self._llm_block.append(Linear(
         "MlpBlock_Mlp2",
         self.sys,
@@ -844,6 +849,7 @@ class Llm:
         self.exe.tensor_par_net,
         self.exe.tensor_par,
         conjugate=True,
+        tp_overlap=self.exe.tensor_par_overlap,
         needs_recompute=recompute_flag,
         needs_recomm=recompute_flag))
     self._llm_block.append(DropOut(

@@ -168,7 +168,7 @@ class OptimalExecution(calculon.CommandLine):
                                activation_recompute)
     for seq_par_ag_redo in pick(can_redo, [True, False], [False]):
       for data_par_overlap in pick(dp>1, [True, False], [False]):
-        for tensor_par_overlap in pick(tp>1, [True, False], [False]):
+        for tensor_par_overlap in pick(tp>1, ['none', 'ring', 'pipe'], ['none']):
           for weight_offload in pick(has_mem2, [True, False], [False]):
             if activation_recompute == 'full' or not has_mem2:
               activations_offloads = [False]

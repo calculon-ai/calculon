@@ -357,7 +357,7 @@ class Linear(Layer):
 class LinearOverlapped(Layer):
   def __init__(self, name, sys, batch_seq, c_in, c_out, tensor_par_comm_type,
                num_tiles, net_id, num_peers, conjugate=False,
-               in_network_reduction=False,
+               in_network_reduction=False, tp_overlap='pipe',
                needs_recompute=False, needs_recomm=False,
                activation_reused=False, activation_stored=True,
                output_stored=True):
@@ -368,6 +368,7 @@ class LinearOverlapped(Layer):
     self.num_peers = num_peers
     self.conjugate = conjugate
     self.in_network_reduction = in_network_reduction
+    self.tp_overlap = tp_overlap
     if self.tensor_par_comm_type == 'rs_ag':
       if not conjugate:
         #AllGather case
@@ -554,20 +555,26 @@ class LinearOverlapped(Layer):
       net_tile = net_time / self.num_tiles
       compute_tile = compute_time / self.num_tiles
       overlap_inflection = net_tile - flop_tile_slowed
-      # we have one exposed comm tile, one exposed compute tile, and
+      # we have one exposed comm tile if tp_comm is not ring,
+      # one exposed compute tile, and
       # (Proc - 1) overlapped tiles, where either compute or comm is exposed
       if overlap_inflection > 0:
         # Tcomm is larger than compute, excess is exposed
-        time = compute_tile + (self.num_tiles - 1) * net_tile + net_tile
+        time = compute_tile + (self.num_tiles - 1) * net_tile
         net_exposed_time = time - (self.num_tiles - 1) * flop_tile_slowed
       else:
         # Tcomm is smaller than compute and hidden, but it contributes to
         # compute slowdown due part of compute resources orchestrating comm
         time = compute_tile + (self.num_tiles - 1) * compute_tile + (
-          self.num_tiles - 1) * net_tile * self.net.processor_usage + \
-          net_tile
-        net_exposed_time = net_tile + (
           self.num_tiles - 1) * net_tile * self.net.processor_usage
+        net_exposed_time = net_tile * self.net.processor_usage * (
+          self.num_tiles - 1)
+      if self.tp_overlap == 'pipe':
+        # If overlap type is pipe, we need to add an exposed comm tile
+        # with ring-based overlap, we have a special schedule for comm and avoid
+        # sending an extra tile we have in the beginning
+        net_exposed_time += net_tile
+        time += net_tile
     self.processing_time = time - net_exposed_time
     self.net_exposed_time = net_exposed_time
     return self.processing_time
