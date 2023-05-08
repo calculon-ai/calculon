@@ -59,6 +59,8 @@ class OptimalExecution(calculon.CommandLine):
                     help='Search across MBS and break earlier when possible')
     sp.add_argument('-t', '--top-n', type=int, default=1,
                     help='Number of best outputs')
+    sp.add_argument('-l', '--layers', action='store_true',
+                    help='Include layers information in output stats file')
 
   @staticmethod
   def run_command(logger, args):
@@ -80,9 +82,9 @@ class OptimalExecution(calculon.CommandLine):
             for optimizer_sharding in pick(dp>1, [True, False], [False]):
               for tensor_par_comm_type in ['ar', 'p2p_rs_ag', 'rs_ag']:
                 params.append(
-                  (args.debug, args.top_n, args.num_procs, args.max_batch_size,
-                   args.datatype, app, syst, tp, pp, dp, ppint, batch_size,
-                   activation_recompute, optimizer_sharding,
+                  (args.debug, args.top_n, args.layers, args.num_procs,
+                   args.max_batch_size, args.datatype, app, syst, tp, pp, dp,
+                   ppint, batch_size, activation_recompute, optimizer_sharding,
                    tensor_par_comm_type, args.mbs_break))
 
     start_time = datetime.datetime.now()
@@ -138,8 +140,8 @@ class OptimalExecution(calculon.CommandLine):
         last += data_par
 
   @staticmethod
-  def search(debug, top_n, num_procs, max_batch_size, datatype, app, syst,
-             tp, pp, dp, ppint, batch_size, activation_recompute,
+  def search(debug, top_n, layers, num_procs, max_batch_size, datatype,
+             app, syst, tp, pp, dp, ppint, batch_size, activation_recompute,
              optimizer_sharding, tensor_par_comm_type, mbs_break):
     num_nets = syst.num_networks
 
@@ -204,7 +206,7 @@ class OptimalExecution(calculon.CommandLine):
                               syst,
                               Llm.Execution(exe_json))
                             model.run(syst)
-                            stats = model.get_stats_json()
+                            stats = model.get_stats_json(layers)
                             good_exe_count += 1
                             curr = (stats['sample_rate'], exe_json, stats)
                             best = OptimalExecution.determine_best(best, curr,

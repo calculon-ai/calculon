@@ -208,7 +208,7 @@ class AllExecutions(calculon.CommandLine):
                                           syst,
                                           Llm.Execution(exe_json))
                                         model.run(syst)
-                                        stats = model.get_stats_json()
+                                        stats = model.get_stats_json(False)
                                         good_exe_count += 1
                                         if (best_rate == None or
                                             stats['sample_rate'] > best_rate):

@@ -377,7 +377,7 @@ class Llm:
     self._dp_comm_time_link = None
     self._bubble_time = None
 
-  def get_stats_json(self):
+  def get_stats_json(self, include_layers):
     assert self._executed
     j = {}
     j['block_fw_flops'] = self._block_fw_flops
@@ -482,9 +482,10 @@ class Llm:
     j['system_efficiency'] = self.get_system_efficiency()
     j['total_efficiency'] = self.get_total_efficiency()
     j['sample_rate'] = self.get_sample_rate()
-    j['layers'] = []
-    for layer in self._llm_block:
-      j['layers'].append(layer.get_stats_json())
+    if include_layers:
+      j['layers'] = []
+      for layer in self._llm_block:
+        j['layers'].append(layer.get_stats_json())
     return j
 
   def _build_attn_block(self):

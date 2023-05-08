@@ -130,7 +130,7 @@ class Validation(calculon.CommandLine):
         mt = Llm(app, logger)
         mt.compile(syst, exe)
         mt.run(syst)
-        stats = mt.get_stats_json()
+        stats = mt.get_stats_json(False)
         data[model][mode]['profile_gib'] = get_profile(model, mode)
         act_par_opt = (stats['weight_space'] + stats['weight_grad_space'] +
                        stats['optimizer_space']) / (1024**3)
@@ -248,7 +248,7 @@ class Validation(calculon.CommandLine):
         mt = Llm(app, logger)
         mt.compile(syst, exe)
         mt.run(syst)
-        stats = mt.get_stats_json()
+        stats = mt.get_stats_json(False)
         raw[model][mode] = stats['act_space'] + stats['act_checkpoint_size']
 
     rel = {}
@@ -335,7 +335,7 @@ class Validation(calculon.CommandLine):
         mt = Llm(app, logger)
         mt.compile(syst, exe)
         mt.run(syst)
-        stats = mt.get_stats_json()
+        stats = mt.get_stats_json(False)
         data[model][mode]['profile_time'] = get_profile(model, mode)
         data[model][mode]['actual_time'] = stats["total_time"]
         data[model][mode]['memory_req'] = stats["proc_mem_tier1_cap_req"]

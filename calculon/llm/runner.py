@@ -39,6 +39,8 @@ class Runner(calculon.CommandLine):
                     help='File path to stats output ("-" for stdout")')
     sp.add_argument('-p', '--peers', type=str, default=None,
                     help='File path to write out peers file')
+    sp.add_argument('-l', '--layers', action='store_true',
+                    help='Include layers information in output stats file')
 
   @staticmethod
   def run_command(logger, args):
@@ -65,7 +67,7 @@ class Runner(calculon.CommandLine):
       model.display_stats()
     elif args.stats.endswith('.json'):
       with open(args.stats, 'w') as fd:
-        json.dump(model.get_stats_json(), fd, indent=2)
+        json.dump(model.get_stats_json(args.layers), fd, indent=2)
     else:
       assert False, f'unknown stats extension: {args.stats}'
 
