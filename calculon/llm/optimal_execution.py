@@ -49,16 +49,16 @@ class OptimalExecution(calculon.CommandLine):
                     help='The datatype to use')
     sp.add_argument('system', type=str,
                     help='File path to system configuration')
-    sp.add_argument('-e', '--execution', type=str, default=None,
-                    help='File path to execution output')
-    sp.add_argument('-s', '--stats', type=str, default=None,
-                    help='File path to stats output')
+    sp.add_argument('output', type=str,
+                    help='File path to the output file')
     sp.add_argument('-c', '--cpus', type=int, default=psutil.cpu_count(logical=False),
                     help='CPUs to use for parallelization')
     sp.add_argument('-n', '--noneok', action='store_true',
                     help='Don\'t give failure status when no good execution exists')
     sp.add_argument('-m', '--mbs-break', action='store_true',
                     help='Search across MBS and break earlier when possible')
+    sp.add_argument('-t', '--top-n', type=int, default=1,
+                    help='Number of best outputs')
 
   @staticmethod
   def run_command(logger, args):
@@ -79,40 +79,26 @@ class OptimalExecution(calculon.CommandLine):
           for activation_recompute in ['full', 'attn_only', 'none']:
             for optimizer_sharding in pick(dp>1, [True, False], [False]):
               for tensor_par_comm_type in ['ar', 'p2p_rs_ag', 'rs_ag']:
-                params.append((args.debug, args.num_procs, args.max_batch_size,
-                               args.datatype, app, syst, tp, pp, dp, ppint,
-                               batch_size, activation_recompute, optimizer_sharding,
-                               tensor_par_comm_type, args.mbs_break))
+                params.append(
+                  (args.debug, args.top_n, args.num_procs, args.max_batch_size,
+                   args.datatype, app, syst, tp, pp, dp, ppint, batch_size,
+                   activation_recompute, optimizer_sharding,
+                   tensor_par_comm_type, args.mbs_break))
 
     start_time = datetime.datetime.now()
     with mp.Pool(args.cpus) as pool:
       searches = pool.starmap(OptimalExecution.search, params)
     end_time = datetime.datetime.now()
 
-    best_rate = None
-    best_stats = None
-    best_exe = None
+    best = []
     exe_count = 0
     good_exe_count = 0
     bad_exe_count = 0
-    data = {}
-    for br, bs, be, ec, gec, bec, tp, pp in searches:
-      if best_rate == None or (br != None and br > best_rate):
-        best_rate = br
-        best_stats = bs
-        best_exe = be
+    for cbest, ec, gec, bec, tp, pp in searches:
+      best = OptimalExecution.determine_best(best, cbest, args.top_n)
       exe_count += ec
       good_exe_count += gec
       bad_exe_count += bec
-      if tp not in data:
-        data[tp] = {}
-      if br != None:
-        data[tp][pp] = {
-          'execution': be,
-          'stats': bs
-        }
-      else:
-        data[tp][pp] = {}
 
     logger.info(f'Total executions: {exe_count}')
     logger.info(f'Good executions: {good_exe_count}')
@@ -120,7 +106,7 @@ class OptimalExecution(calculon.CommandLine):
     calc_rate = exe_count / (end_time - start_time).total_seconds()
     logger.info(f'Calculation rate: {calc_rate:.2f} calcs/sec')
     if not args.debug:
-      none_found = not best_rate
+      none_found = len(best) == 0
       if none_found:
         if not args.noneok:
           logger.fatal('No acceptable configurations found :(')
@@ -128,15 +114,17 @@ class OptimalExecution(calculon.CommandLine):
         else:
           logger.info('No acceptable configurations found :(')
       else:
-        logger.info(f'Best sample rate: {best_rate}')
-      if args.execution:
-        with open(args.execution, 'w') as fd:
-          json.dump({} if none_found else best_exe, fd, indent=2)
-        logger.info(f'Best execution: {args.execution}')
-      if args.stats:
-        with open(args.stats, 'w') as fd:
-          json.dump({} if none_found else best_stats, fd, indent=2)
-        logger.info(f'Best stats: {args.stats}')
+        logger.info(f'Best sample rate: {best[0][0]}')
+      output = {}
+      for index, run in enumerate(best):
+        _, execution, stats = run
+        output[index] = {
+          'execution': execution,
+          'stats': stats
+        }
+      with open(args.output, 'w') as fd:
+        json.dump(output, fd, indent=2)
+        logger.info(f'Output: {args.output}')
 
     return 0
 
@@ -150,14 +138,12 @@ class OptimalExecution(calculon.CommandLine):
         last += data_par
 
   @staticmethod
-  def search(debug, num_procs, max_batch_size, datatype, app, syst, tp, pp, dp,
-             ppint, batch_size, activation_recompute, optimizer_sharding,
-             tensor_par_comm_type, mbs_break):
+  def search(debug, top_n, num_procs, max_batch_size, datatype, app, syst,
+             tp, pp, dp, ppint, batch_size, activation_recompute,
+             optimizer_sharding, tensor_par_comm_type, mbs_break):
     num_nets = syst.num_networks
 
-    best_rate = None
-    best_stats = None
-    best_exe = None
+    best = []
     exe_count = 0
     good_exe_count = 0
     bad_exe_count = 0
@@ -220,19 +206,24 @@ class OptimalExecution(calculon.CommandLine):
                             model.run(syst)
                             stats = model.get_stats_json()
                             good_exe_count += 1
-                            if (best_rate == None or
-                                stats['sample_rate'] > best_rate):
-                              best_rate = stats['sample_rate']
-                              best_exe = exe_json
-                              best_stats = stats
+                            curr = (stats['sample_rate'], exe_json, stats)
+                            best = OptimalExecution.determine_best(best, curr,
+                                                                   top_n)
                           except Llm.Error as ex:
                             logger = logging.getLogger()
                             logger.debug(f'JSON:{exe_json}\nERROR:{ex}\n')
                             bad_exe_count += 1
                   if mbs_break and good_exe_count == mbs_break_good:
                     break
-    return (best_rate, best_stats, best_exe, exe_count, good_exe_count,
-            bad_exe_count, tp, pp)
+    return (best, exe_count, good_exe_count, bad_exe_count, tp, pp)
 
+  @staticmethod
+  def determine_best(current, candidate, quantity):
+    if not isinstance(candidate, list):
+      current.append(candidate)
+    else:
+      current.extend(candidate)
+    current.sort(reverse=True, key=lambda x: x[0])
+    return current[:quantity]
 
 calculon.CommandLine.register(OptimalExecution)
