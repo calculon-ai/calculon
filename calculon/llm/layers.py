@@ -320,6 +320,9 @@ class Layer:
   def get_exposed_net_time(self, stage, baseblock=True):
     return 0
 
+  def get_required_bandwidth(self, stage, baseblock=True):
+    return 0
+
   def compute_processing_time(self, stage):
     self.processing_time =  self.sys.get_processing_time(
       self.compute_flops_time(stage),
@@ -369,6 +372,7 @@ class LinearOverlapped(Layer):
     self.conjugate = conjugate
     self.in_network_reduction = in_network_reduction
     self.tp_overlap = tp_overlap
+    self._processed_flag = False
     if self.tensor_par_comm_type == 'rs_ag':
       if not conjugate:
         #AllGather case
@@ -577,11 +581,21 @@ class LinearOverlapped(Layer):
         time += net_tile
     self.processing_time = time - net_exposed_time
     self.net_exposed_time = net_exposed_time
+    self._processed_flag = True
     return self.processing_time
 
   def get_exposed_net_time(self, stage, baseblock=True):
     # only use after calling compute_processing_time(), otherwise it's set with None
+    assert self._processed_flag
     return self.net_exposed_time
+
+  def get_required_bandwidth(self, stage, baseblock=True):
+    assert self._processed_flag
+    net_tile_size = self.get_comm_tile(stage, baseblock)
+    flop_time = self.compute_flops_time(stage)
+    flop_time_slowed = flop_time / (1 - self.net.processor_usage)
+    flop_tile_slowed = flop_time_slowed / self.num_tiles
+    return net_tile_size / flop_tile_slowed
 
 class BatchMatMul(Layer):
   def __init__(self, name, sys, batch, size_a, contraction_size, size_b,

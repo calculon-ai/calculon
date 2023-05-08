@@ -306,6 +306,9 @@ class Llm:
     self._baseblock_bw_time = None
     self._edgeblock_bw_time = None
     self._block_dp_time = None
+    self._tp_bw_overlap_req = None
+    self._dp_bw_overlap_req_chunk = None
+    self._dp_bw_overlap_req_tail = None
 
     self._block_weight_space = None
     self._block_act_working_space = None
@@ -424,6 +427,9 @@ class Llm:
     j['block_fw_pp_size'] = self._block_fw_pp_size
     j['block_bw_pp_size'] = self._block_bw_pp_size
     j['block_dp_size'] = self._block_dp_size
+    j['tp_bw_overlap_req'] = self._tp_bw_overlap_req
+    j['dp_bw_overlap_req_chunk'] = self._dp_bw_overlap_req_chunk
+    j['dp_bw_overlap_req_tail'] = self._dp_bw_overlap_req_tail
 
     j['block_weight_space'] = self._block_weight_space
     j['block_act_working_space'] = self._block_act_working_space
@@ -1035,6 +1041,7 @@ class Llm:
     self._block_weight_grad_space_no_sharding = 0
     self._block_act_grad_space = 0
     self._block_optimizer_space = 0
+    self._tp_bw_overlap_req = 0
 
     prev_layer_recompute = False
     for layer in self._llm_block:
@@ -1056,6 +1063,10 @@ class Llm:
         baseblock=True)
       self._edgeblock_fw_tp_time_exposed += layer.get_exposed_net_time("fw",
         baseblock=False)
+      self._tp_bw_overlap_req = max(self._tp_bw_overlap_req,
+        layer.get_required_bandwidth("fw", baseblock=True))
+      self._tp_bw_overlap_req = max(self._tp_bw_overlap_req,
+        layer.get_required_bandwidth("fw", baseblock=False))
       if self.exe.training:
         if layer.get_recompute_flag():
           self._block_re_flops += self._block_fw_flops
@@ -1093,6 +1104,10 @@ class Llm:
           "agrad", baseblock=True)
         self._edgeblock_agrad_tp_time_exposed += layer.get_exposed_net_time(
           "agrad", baseblock=False)
+        self._tp_bw_overlap_req = max(self._tp_bw_overlap_req,
+          layer.get_required_bandwidth("agrad", baseblock=True))
+        self._tp_bw_overlap_req = max(self._tp_bw_overlap_req,
+          layer.get_required_bandwidth("agrad", baseblock=False))
         self._block_wgrad_flops += layer.get_wgrad_flops()
         self._block_wgrad_flops_time += layer.compute_flops_time("wgrad")
         self._block_wgrad_mem_accessed += layer.get_wgrad_mem_accessed()
@@ -1279,6 +1294,8 @@ class Llm:
                    human_format(self._baseblock_recomm_size, 'bytes'))
     self.log.debug("%s %s", 'TP recomm edgeblock size:',
                    human_format(self._edgeblock_recomm_size, 'bytes'))
+    self.log.debug("%s %s", 'TP comm required bandwidth for tiled overlap:',
+                   human_format(self._tp_bw_overlap_req, 'bandwidth'))
 
   def _compute_batch_stats(self):
     """
@@ -1602,6 +1619,24 @@ class Llm:
           # compute slowdown due part of compute resources orchestrating comm
           overlappable_chunks_exposed_time = num_overlappable_chunks * \
             chunk_dp_time * self._dp_net.processor_usage
+        # Compute minimal bandwidth required for DP comm overlap of all chunks
+        # but the last one.
+        chunk_overlap_time = overlap_window + overlap_compute * \
+          self._dp_net.processor_usage
+        if self._dp_net == self._pp_net:
+          chunk_overlap_time -= chunk_bw_pp_time
+        chunk_overlap_time *= num_overlappable_chunks
+        if chunk_overlap_time > 0:
+          self._dp_bw_overlap_req_chunk = self._blocks_per_chunk * \
+            self._block_dp_size / chunk_overlap_time
+          if self.exe.optimizer_sharding:
+            self._dp_bw_overlap_req_chunk *= (
+              self._dp_net._ops["reduce_scatter"].scalar +
+              self._dp_net._ops["all_gather"].scalar)
+          else:
+            self._dp_bw_overlap_req_chunk *= self._dp_net._ops["all_reduce"].scalar
+        else:
+          self._dp_bw_overlap_req_chunk = 0
         # in the last chunk, we overlap DP comm over last edge block and all
         # middle blocks, so we substract the time of the first edge block
         if self._baseblocks_per_chunk > 0:
@@ -1625,6 +1660,20 @@ class Llm:
             self._block_dp_time * self._dp_net.processor_usage
         exposed_time = \
           overlappable_chunks_exposed_time + last_chunk_exposed_time
+        # Compute minimal bandwidth required for DP comm overlap of last chunk
+        tail_overlap_time = last_chunk_window + last_chunk_overlap_size * \
+          self._block_dp_time * self._dp_net.processor_usage
+        if tail_overlap_time > 0:
+          self._dp_bw_overlap_req_tail = self._blocks_per_chunk * \
+          self._block_dp_size / tail_overlap_time
+          if self.exe.optimizer_sharding:
+            self._dp_bw_overlap_req_tail *= (
+              self._dp_net._ops["reduce_scatter"].scalar +
+              self._dp_net._ops["all_gather"].scalar)
+          else:
+            self._dp_bw_overlap_req_tail *= self._dp_net._ops["all_reduce"].scalar
+        else:
+          self._dp_bw_overlap_req_tail = 0
         self._dp_comm_time_exposed = self._block_dp_time + exposed_time
         self._dp_comm_time_link = self._blocks_per_proc * self._block_dp_time
         self.log.debug('Blocks per chunk: %d', self._blocks_per_chunk)
@@ -1637,15 +1686,23 @@ class Llm:
       else:
         self._dp_comm_time_exposed = self._blocks_per_proc * self._block_dp_time
         self._dp_comm_time_link = self._dp_comm_time_exposed
+        self._dp_bw_overlap_req_chunk = 0
+        self._dp_bw_overlap_req_tail = 0
     else:
       self._dp_comm_time_exposed = 0
       self._dp_comm_time_link = 0
+      self._dp_bw_overlap_req_chunk = 0
+      self._dp_bw_overlap_req_tail = 0
     self.log.debug('Chunk FW time: %.3e', chunk_fw_time)
     self.log.debug('Chunk BW time: %.3e', chunk_bw_time)
     self.log.debug('Chunk BW time for DP overlap: %.3e', chunk_dp_overlap_time)
     self.log.debug('DP comm time exposed: %.3e', self._dp_comm_time_exposed)
     self.log.debug('DP comm time on the link: %.3e',
                    self._dp_comm_time_link)
+    self.log.debug('DP comm required bandwidth for overlapped chunks: %s',
+                   human_format(self._dp_bw_overlap_req_chunk, "bandwidth"))
+    self.log.debug('DP comm required bandwidth for the last chunk: %s',
+                   human_format(self._dp_bw_overlap_req_tail, "bandwidth"))
 
     # memory capacity stats
     self._weight_space = self._block_weight_space * self._blocks_per_proc
