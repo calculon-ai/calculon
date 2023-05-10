@@ -1431,24 +1431,26 @@ class Llm:
       self._baseblock_fw_time_no_offload + self._baseblock_fw_offload_overhead)
     self._edgeblock_fw_time = (
       self._edgeblock_fw_time_no_offload + self._edgeblock_fw_offload_overhead)
-    # When we consider block BW time, we add optimizer step to it
+    # When we consider block BW time, we do not add optimizer step to it
+    # because we have optimizer only for last microbatches, while offloading
+    # works during the whole backward pass.
+    # Optimizer step is overall memory bound streaming task, itt is reasonable
+    # to not overlap offloading with optimizer step
     self._baseblock_bw_time_no_offload = (
       self._block_re_time + self._baseblock_recomm_time_exposed +
       self._block_agrad_time + self._block_wgrad_time +
-      self._block_optim_time +
       self._baseblock_agrad_tp_time)
     self._edgeblock_bw_time_no_offload = (
       self._block_re_time + self._edgeblock_recomm_time_exposed +
       self._block_agrad_time + self._block_wgrad_time +
-      self._block_optim_time +
       self._edgeblock_agrad_tp_time + chunk_bw_pp_time)
     self._baseblock_bw_offload_overhead = max(
       0, self.get_bw_offload_time() + self._block_agrad_mem_time +
-      self._block_wgrad_mem_time + self._block_optim_mem_time -
+      self._block_wgrad_mem_time -
       self._baseblock_bw_time_no_offload)
     self._edgeblock_bw_offload_overhead = max(
       0, self.get_bw_offload_time() + self._block_agrad_mem_time +
-      self._block_wgrad_mem_time + self._block_optim_mem_time -
+      self._block_wgrad_mem_time -
       self._edgeblock_bw_time_no_offload)
     self._baseblock_bw_time = (
       self._baseblock_bw_time_no_offload + self._baseblock_bw_offload_overhead)
@@ -1470,13 +1472,13 @@ class Llm:
     block_dp_compute_time = (
       self._block_agrad_flops_time + self._block_agrad_flops_time +
       self._block_re_flops_time)
-    if self.exe.optimizer_sharding:
-      # Can't overlap split optimizer step with communication
-      baseblock_dp_overlap_time -= self._block_optim_time
-      edgeblock_dp_overlap_time -= self._block_optim_time
-    else:
-      baseblock_dp_overlap_time -= self._block_optim_mem_time
-      edgeblock_dp_overlap_time -= self._block_optim_mem_time
+    if not self.exe.optimizer_sharding:
+      # If optimizer is not sharded, we can overlap optimizer step with
+      # communication, except for memory access time
+      baseblock_dp_overlap_time += (
+        self._block_optim_time - self._block_optim_mem_time)
+      edgeblock_dp_overlap_time += (
+        self._block_optim_time - self._block_optim_mem_time)
       block_dp_compute_time += self._block_optim_flops_time
     if self._dp_net == self._tp_net:
       # Can't overlap DP with TP if in the same network
@@ -1643,6 +1645,11 @@ class Llm:
         if self._baseblocks_per_chunk > 0:
           last_chunk_window = chunk_dp_overlap_time - chunk_bw_pp_time - (
             self._baseblock_bw_time + self._edgeblock_bw_time) / 2
+          if not self.exe.optimizer_sharding:
+            # If optimizer is not sharded, we can overlap optimizer step with
+            # communication, except for memory access time
+            last_chunk_window += (
+              self._block_optim_time - self._block_optim_mem_time)
         else:
           # if there is no base blocks, we only have a single edge block
           # and last chunk is completely not overlappable
@@ -2151,9 +2158,9 @@ class Llm:
     if self.exe.training:
       offload_time = min(
         self._baseblock_bw_time_no_offload - (self._block_agrad_mem_time +
-          self._block_wgrad_mem_time + self._block_optim_mem_time),
+          self._block_wgrad_mem_time),
         self._edgeblock_bw_time_no_offload - (self._block_agrad_mem_time +
-          self._block_wgrad_mem_time + self._block_optim_mem_time))
+          self._block_wgrad_mem_time))
       return (self._block_weight_grad_space + self._block_optimizer_space) / \
         offload_time
     else:
@@ -2166,9 +2173,9 @@ class Llm:
     if self.exe.training:
       bw_offload_time = min(
         self._baseblock_bw_time_no_offload - (self._block_agrad_mem_time +
-          self._block_wgrad_mem_time + self._block_optim_mem_time),
+          self._block_wgrad_mem_time),
         self._edgeblock_bw_time_no_offload - (self._block_agrad_mem_time +
-          self._block_wgrad_mem_time +self._block_optim_mem_time))
+          self._block_wgrad_mem_time))
       req_bw = max(self._get_fw_offload_size() / fw_offload_time,
                    self._get_bw_offload_size() / bw_offload_time)
       return req_bw
