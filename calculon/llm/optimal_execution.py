@@ -16,6 +16,7 @@
 """
 
 import datetime
+import gzip
 import json
 import logging
 import multiprocessing as mp
@@ -107,26 +108,50 @@ class OptimalExecution(calculon.CommandLine):
     logger.info(f'Bad executions: {bad_exe_count}')
     calc_rate = exe_count / (end_time - start_time).total_seconds()
     logger.info(f'Calculation rate: {calc_rate:.2f} calcs/sec')
-    if not args.debug:
-      none_found = len(best) == 0
-      if none_found:
-        if not args.noneok:
-          logger.fatal('No acceptable configurations found :(')
-          return -1
-        else:
-          logger.info('No acceptable configurations found :(')
+    if args.debug:
+      return 0
+
+    none_found = len(best) == 0
+    if none_found:
+      if not args.noneok:
+        logger.fatal('No acceptable configurations found :(')
+        return -1
       else:
-        logger.info(f'Best sample rate: {best[0][0]}')
-      output = {}
-      for index, run in enumerate(best):
-        _, execution, stats = run
-        output[index] = {
-          'execution': execution,
-          'stats': stats
-        }
-      with open(args.output, 'w') as fd:
-        json.dump(output, fd, indent=2)
+        logger.info('No acceptable configurations found :(')
+    else:
+      logger.info(f'Best sample rate: {best[0][0]}')
+
+    output = {}
+    for index, run in enumerate(best):
+      _, execution, stats = run
+      output[index] = {
+        'execution': execution,
+        'stats': stats
+      }
+
+    if args.output.endswith('.json') or args.output.endswith('.json.gz'):
+      opener = gzip.open if args.output.endswith('.gz') else open
+      indent = None if args.output.endswith('.gz') else 2
+      with opener(args.output, 'wb') as fd:
+        text = json.dumps(output, indent=indent)
+        fd.write(bytes(text, 'utf-8'))
         logger.info(f'Output: {args.output}')
+    elif args.output.endswith('.csv') or args.output.endswith('.csv.gz'):
+      exe_keys = list(output[0]['execution'].keys())
+      stats_keys = list(output[0]['stats'].keys())
+      opener = gzip.open if args.output.endswith('.gz') else open
+      with opener(args.output, 'wb') as fd:
+        fd.write(bytes(f',{",".join(exe_keys)},{",".join(stats_keys)}\n',
+                       'utf-8'))
+        for index in sorted(output.keys()):
+          fd.write(bytes(f'{index}', 'utf-8'))
+          for exe_key in exe_keys:
+            fd.write(bytes(f',{output[index]["execution"][exe_key]}', 'utf-8'))
+          for stats_key in stats_keys:
+            fd.write(bytes(f',{output[index]["stats"][stats_key]}', 'utf-8'))
+          fd.write(bytes('\n', 'utf-8'))
+    else:
+      assert False, f'Unknown file type: {args.output}'
 
     return 0
 
