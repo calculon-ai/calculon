@@ -14,15 +14,24 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
 """
+import gzip
+import json
 
-__version__ = '0.1.0'
 
-# Imports of this module
-from .command_line import CommandLine
-from .io import *
-from .system import System
-from .util import *
-from .version import Version
+def is_json_extension(filename):
+  return filename.endswith('.json') or filename.endswith('.json.gz')
 
-# Imports submodules
-from .llm import *
+
+def write_json_file(jdata, filename):
+  assert is_json_extension(filename)
+  opener = gzip.open if filename.endswith('.gz') else open
+  indent = None if filename.endswith('.gz') else 2
+  with opener(filename, 'wb') as fd:
+    fd.write(bytes(json.dumps(jdata, indent=indent), 'utf-8'))
+
+
+def read_json_file(filename):
+  assert is_json_extension(filename)
+  opener = gzip.open if filename.endswith('.gz') else open
+  with opener(filename, 'rb') as fd:
+    return json.loads(fd.read().decode('utf-8'))

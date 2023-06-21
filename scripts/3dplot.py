@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
-import json
+import calculon
 import matplotlib
 matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
@@ -10,8 +10,7 @@ import numpy as np
 
 
 def main(args):
-  with open(args.stats, 'r') as fd:
-    data = json.load(fd)
+  data = calculon.io.read_json_file(args.stats)
 
   # Turns the keys back into integers
   ndata = {}

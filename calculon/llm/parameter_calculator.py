@@ -15,7 +15,6 @@
  * limitations under the License.
 """
 
-import json
 import os
 
 import calculon
@@ -38,8 +37,7 @@ class ParameterCalculator(calculon.CommandLine):
 
   @staticmethod
   def run_command(logger, args):
-    with open(args.application, 'r') as fd:
-      app_json = json.load(fd)
+    app_json = calculon.io.read_json_file(args.application)
 
     try:
       app = Llm.Application(app_json)

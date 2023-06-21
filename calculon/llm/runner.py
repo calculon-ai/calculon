@@ -15,8 +15,6 @@
  * limitations under the License.
 """
 
-import json
-
 import calculon
 from calculon.llm import *
 
@@ -44,12 +42,9 @@ class Runner(calculon.CommandLine):
 
   @staticmethod
   def run_command(logger, args):
-    with open(args.application, 'r') as fd:
-      app_json = json.load(fd)
-    with open(args.execution, 'r') as fd:
-      exe_json = json.load(fd)
-    with open(args.system, 'r') as fd:
-      sys_json = json.load(fd)
+    app_json = calculon.io.read_json_file(args.application)
+    exe_json = calculon.io.read_json_file(args.execution)
+    sys_json = calculon.io.read_json_file(args.system)
 
     app = Llm.Application(app_json)
     exe = Llm.Execution(exe_json)
@@ -65,15 +60,13 @@ class Runner(calculon.CommandLine):
 
     if args.stats == '-':
       model.display_stats()
-    elif args.stats.endswith('.json'):
-      with open(args.stats, 'w') as fd:
-        json.dump(model.get_stats_json(args.layers), fd, indent=2)
+    elif calculon.is_json_extension(args.stats):
+      calculon.write_json_file(model.get_stats_json(args.layers), args.stats)
     else:
       assert False, f'unknown stats extension: {args.stats}'
 
     if args.peers:
-      with open(args.peers, 'w') as fd:
-        json.dump(exe.get_peers_json(), fd, indent=2)
+      calculon.write_json_file(exe.get_peers_json(), args.peers)
 
     return 0
 

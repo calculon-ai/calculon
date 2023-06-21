@@ -17,7 +17,6 @@
 
 import datetime
 import gzip
-import json
 import logging
 import multiprocessing as mp
 import psutil
@@ -65,10 +64,8 @@ class OptimalExecution(calculon.CommandLine):
 
   @staticmethod
   def run_command(logger, args):
-    with open(args.application, 'r') as fd:
-      app = Llm.Application(json.load(fd))
-    with open(args.system, 'r') as fd:
-      syst = System(json.load(fd))
+    app = Llm.Application(calculon.io.read_json_file(args.application))
+    syst = System(calculon.io.read_json_file(args.system))
 
     params = []
     for tp in Llm.get_all_tensor_parallelisms(
@@ -129,13 +126,9 @@ class OptimalExecution(calculon.CommandLine):
         'stats': stats
       }
 
-    if args.output.endswith('.json') or args.output.endswith('.json.gz'):
-      opener = gzip.open if args.output.endswith('.gz') else open
-      indent = None if args.output.endswith('.gz') else 2
-      with opener(args.output, 'wb') as fd:
-        text = json.dumps(output, indent=indent)
-        fd.write(bytes(text, 'utf-8'))
-        logger.info(f'Output: {args.output}')
+    if calculon.io.is_json_extension(args.output):
+      logger.info(f'Output: {args.output}')
+      calculon.io.write_json_file(output, args.output)
     elif args.output.endswith('.csv') or args.output.endswith('.csv.gz'):
       exe_keys = list(output[0]['execution'].keys())
       stats_keys = list(output[0]['stats'].keys())

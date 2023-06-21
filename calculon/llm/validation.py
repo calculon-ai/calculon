@@ -15,7 +15,6 @@
  * limitations under the License.
 """
 
-import json
 import logging
 import math
 
@@ -113,8 +112,7 @@ class Validation(calculon.CommandLine):
       return kProfile[model][mode]
 
     syst_file = f'systems/a100_80e.json'
-    with open(syst_file, 'r') as fd:
-      syst = System(json.load(fd))
+    syst = System(calculon.io.read_json_file(syst_file))
     data = {}
     for model in kModels:
       data[model] = {}
@@ -123,10 +121,8 @@ class Validation(calculon.CommandLine):
           print(f'Analyzing {model} {mode}')
         data[model][mode] = {}
         app_file, exe_file = get_files(model, mode)
-        with open(app_file, 'r') as fd:
-          app = Llm.Application(json.load(fd))
-        with open(exe_file, 'r') as fd:
-          exe = Llm.Execution(json.load(fd))
+        app = Llm.Application(calculon.read_json_file(app_file))
+        exe = Llm.Execution(calculon.read_json_file(exe_file))
         mt = Llm(app, logger)
         mt.compile(syst, exe)
         mt.run(syst)
@@ -231,8 +227,7 @@ class Validation(calculon.CommandLine):
       return kProfile[model][mode]
 
     syst_file = f'systems/a100_80e.json'
-    with open(syst_file, 'r') as fd:
-      syst = System(json.load(fd))
+    syst = System(calculon.io.read_json_file(syst_file))
     raw = {}
     for model in kModels:
       raw[model] = {}
@@ -241,10 +236,8 @@ class Validation(calculon.CommandLine):
           print(f'Analyzing {model} {mode}')
         raw[model][mode] = {}
         app_file, exe_file = get_files(model, mode)
-        with open(app_file, 'r') as fd:
-          app = Llm.Application(json.load(fd))
-        with open(exe_file, 'r') as fd:
-          exe = Llm.Execution(json.load(fd))
+        app = Llm.Application(calculon.read_json_file(app_file))
+        exe = Llm.Execution(calculon.read_json_file(exe_file))
         mt = Llm(app, logger)
         mt.compile(syst, exe)
         mt.run(syst)
@@ -318,8 +311,7 @@ class Validation(calculon.CommandLine):
       return kProfile[model][mode]
 
     syst_file = f'systems/a100_80g.json'
-    with open(syst_file, 'r') as fd:
-      syst = System(json.load(fd))
+    syst = System(calculon.io.read_json_file(syst_file))
     data = {}
     for model in kModels:
       data[model] = {}
@@ -328,10 +320,8 @@ class Validation(calculon.CommandLine):
           print(f'Analyzing {model} {mode}')
         data[model][mode] = {}
         app_file, exe_file = get_files(model, mode)
-        with open(app_file, 'r') as fd:
-          app = Llm.Application(json.load(fd))
-        with open(exe_file, 'r') as fd:
-          exe = Llm.Execution(json.load(fd))
+        app = Llm.Application(calculon.read_json_file(app_file))
+        exe = Llm.Execution(calculon.read_json_file(exe_file))
         mt = Llm(app, logger)
         mt.compile(syst, exe)
         mt.run(syst)
