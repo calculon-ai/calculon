@@ -17,6 +17,7 @@
 
 import logging
 import math
+import os
 
 import calculon
 from calculon.util import pick
@@ -33,6 +34,8 @@ class Validation(calculon.CommandLine):
       Validation.NAME, aliases=Validation.ALIASES,
       help='run a validation of llm execution')
     sp.set_defaults(func=Validation.run_command)
+    sp.add_argument('-b', '--base_dir', default='.',
+                    help='Base directory')
     sp.add_argument('-v', '--verbose', action='store_true',
                     help='Show verbose output while running')
 
@@ -102,8 +105,9 @@ class Validation(calculon.CommandLine):
     def get_files(model, mode):
       assert model in kModels
       assert mode in kModes
-      app = f'models/{model}.json'
-      exe = f'validation/seqsel/fig1/{model}_{mode}.json'
+      app = os.path.join(args.base_dir, 'models', f'{model}.json')
+      exe = os.path.join(args.base_dir, 'validation', 'seqsel', 'fig1',
+                         f'{model}_{mode}.json')
       return app, exe
 
     def get_profile(model, mode):
@@ -111,7 +115,7 @@ class Validation(calculon.CommandLine):
       assert mode in kModes
       return kProfile[model][mode]
 
-    syst_file = f'systems/a100_80e.json'
+    syst_file = os.path.join(args.base_dir, 'systems', 'a100_80e.json')
     syst = System(calculon.io.read_json_file(syst_file))
     data = {}
     for model in kModels:
@@ -217,8 +221,9 @@ class Validation(calculon.CommandLine):
     def get_files(model, mode):
       assert model in kModels
       assert mode in kModes
-      app = f'models/{model}.json'
-      exe = f'validation/seqsel/fig7/{model}_{mode}.json'
+      app = os.path.join(args.base_dir, 'models', f'{model}.json')
+      exe = os.path.join(args.base_dir, 'validation', 'seqsel', 'fig7',
+                         f'{model}_{mode}.json')
       return app, exe
 
     def get_profile(model, mode):
@@ -226,7 +231,7 @@ class Validation(calculon.CommandLine):
       assert mode in kModes
       return kProfile[model][mode]
 
-    syst_file = f'systems/a100_80e.json'
+    syst_file = os.path.join(args.base_dir, 'systems', 'a100_80e.json')
     syst = System(calculon.io.read_json_file(syst_file))
     raw = {}
     for model in kModels:
@@ -301,8 +306,9 @@ class Validation(calculon.CommandLine):
     def get_files(model, mode):
       assert model in kModels
       assert mode in kModes
-      app = f'models/{model}.json'
-      exe = f'validation/seqsel/tab5/{model}_{mode}.json'
+      app = os.path.join(args.base_dir, 'models', f'{model}.json')
+      exe = os.path.join(args.base_dir, 'validation', 'seqsel', 'tab5',
+                         f'{model}_{mode}.json')
       return app, exe
 
     def get_profile(model, mode):
@@ -310,7 +316,7 @@ class Validation(calculon.CommandLine):
       assert mode in kModes
       return kProfile[model][mode]
 
-    syst_file = f'systems/a100_80g.json'
+    syst_file = os.path.join(args.base_dir, 'systems', 'a100_80g.json')
     syst = System(calculon.io.read_json_file(syst_file))
     data = {}
     for model in kModels:
