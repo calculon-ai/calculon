@@ -58,7 +58,7 @@ class OptimalExecution(calculon.CommandLine):
     sp.add_argument('-m', '--mbs-break', action='store_true',
                     help='Search across MBS and break earlier when possible')
     sp.add_argument('-t', '--top-n', type=int, default=1,
-                    help='Number of best outputs')
+                    help='Number of best outputs (0 for all)')
     sp.add_argument('-l', '--layers', action='store_true',
                     help='Include layers information in output stats file')
     sp.add_argument('-f', '--fused_activation', type=arg_true_false_all,
@@ -87,20 +87,26 @@ class OptimalExecution(calculon.CommandLine):
                    ppint, batch_size, activation_recompute, optimizer_sharding,
                    tensor_par_comm_type, args.fused_activation, args.mbs_break))
 
+    # Runs parallel searches
     start_time = datetime.datetime.now()
     with mp.Pool(args.cpus) as pool:
       searches = pool.starmap(OptimalExecution.search, params)
     end_time = datetime.datetime.now()
 
+    # Combines parallel search result into one data structure
     best = []
     exe_count = 0
     good_exe_count = 0
     bad_exe_count = 0
     for cbest, ec, gec, bec, tp, pp in searches:
-      best = OptimalExecution.determine_best(best, cbest, args.top_n)
+      best = OptimalExecution.update_list(best, cbest, args.top_n)
       exe_count += ec
       good_exe_count += gec
       bad_exe_count += bec
+
+    # If needed, performs a final sorting pass
+    if args.top_n <= 0:
+      best.sort(reverse=True, key=lambda x: x[0])
 
     logger.info(f'Total executions: {exe_count}')
     logger.info(f'Good executions: {good_exe_count}')
@@ -132,6 +138,7 @@ class OptimalExecution(calculon.CommandLine):
       logger.info(f'Output: {args.output}')
       calculon.io.write_json_file(output, args.output)
     elif args.output.endswith('.csv') or args.output.endswith('.csv.gz'):
+      logger.info(f'Output: {args.output}')
       exe_keys = list(output[0]['execution'].keys())
       stats_keys = list(output[0]['stats'].keys())
       opener = gzip.open if args.output.endswith('.gz') else open
@@ -147,6 +154,7 @@ class OptimalExecution(calculon.CommandLine):
           fd.write(bytes('\n', 'utf-8'))
     else:
       assert False, f'Unknown file type: {args.output}'
+
 
     return 0
 
@@ -230,8 +238,8 @@ class OptimalExecution(calculon.CommandLine):
                               stats = model.get_stats_json(layers)
                               good_exe_count += 1
                               curr = (stats['sample_rate'], exe_json, stats)
-                              best = OptimalExecution.determine_best(best, curr,
-                                                                     top_n)
+                              best = OptimalExecution.update_list(best, curr,
+                                                                  top_n)
                             except Llm.Error as ex:
                               logger = logging.getLogger()
                               logger.debug(f'JSON:{exe_json}\nERROR:{ex}\n')
@@ -241,12 +249,16 @@ class OptimalExecution(calculon.CommandLine):
     return (best, exe_count, good_exe_count, bad_exe_count, tp, pp)
 
   @staticmethod
-  def determine_best(current, candidate, quantity):
+  def update_list(current, candidate, quantity):
     if not isinstance(candidate, list):
       current.append(candidate)
     else:
       current.extend(candidate)
-    current.sort(reverse=True, key=lambda x: x[0])
-    return current[:quantity]
+    if quantity <= 0:
+      return current  # don't sort and chop
+    else:
+      current.sort(reverse=True, key=lambda x: x[0])
+      return current[:quantity]
+
 
 calculon.CommandLine.register(OptimalExecution)
