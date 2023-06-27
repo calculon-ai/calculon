@@ -15,6 +15,8 @@
  * limitations under the License.
 """
 
+import argparse
+
 
 def human_format(value, v_type='base10', precision=3):
   step = 1
@@ -65,3 +67,17 @@ def pick(en, a, b):
   if en:
     return a
   return b
+
+
+def arg_true_false_all(arg):
+  trues = ['t', 'true', 'T', 'True', '1']
+  falses = ['f', 'false', 'F', 'False', '0']
+  alls = ['both', 'all', '*']
+  if arg in trues:
+    return [True]
+  elif arg in falses:
+    return [False]
+  elif arg in alls:
+    return [False, True]
+  else:
+    raise argparse.ArgumentTypeError(f'Invalid true/false/all: {arg}')
