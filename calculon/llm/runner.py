@@ -47,7 +47,7 @@ class Runner(calculon.CommandLine):
     sys_json = calculon.io.read_json_file(args.system)
 
     app = Llm.Application(app_json)
-    exe = Llm.Execution(exe_json)
+    exe = Llm.Execution.from_json(exe_json)
     syst = System(sys_json)
 
     try:

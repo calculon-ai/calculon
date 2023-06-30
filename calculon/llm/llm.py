@@ -53,56 +53,79 @@ class Llm:
 
   class Execution:
     """Specifies the execution configuration."""
-    def __init__(self, cfg):
-      self.cfg = cfg
-      self.training = cfg['training']
-      self.num_procs = cfg['num_procs']
+
+    @staticmethod
+    def fields():
+      return (
+        'num_procs', 'tensor_par', 'pipeline_par', 'data_par', 'tensor_par_net',
+        'pipeline_par_net', 'data_par_net', 'batch_size', 'microbatch_size',
+        'datatype', 'fused_activation', 'attention_type', 'activation_recompute',
+        'pipeline_interleaving', 'optimizer_sharding', 'tensor_par_comm_type',
+        'tensor_par_overlap', 'seq_par_ag_redo', 'data_par_overlap',
+        'weight_offload', 'activations_offload', 'optimizer_offload', 'training')
+
+    @staticmethod
+    def from_json(cfg):
+      assert set(cfg.keys()) == set(Llm.Execution.fields())
+      values = [cfg[field] for field in Llm.Execution.fields()]
+      return Llm.Execution(*values)
+
+    def __init__(self, num_procs, tensor_par, pipeline_par, data_par,
+                 tensor_par_net, pipeline_par_net, data_par_net,
+                 batch_size, microbatch_size, datatype,
+                 fused_activation, attention_type, activation_recompute,
+                 pipeline_interleaving, optimizer_sharding,
+                 tensor_par_comm_type, tensor_par_overlap,
+                 seq_par_ag_redo, data_par_overlap, weight_offload,
+                 activations_offload, optimizer_offload, training):
+      self.training = training
+      self.num_procs = num_procs
       assert self.num_procs > 0
-      self.tensor_par = cfg['tensor_par']
+      self.tensor_par = tensor_par
       assert self.tensor_par > 0
-      self.pipeline_par = cfg['pipeline_par']
+      self.pipeline_par = pipeline_par
       assert self.pipeline_par > 0
-      self.data_par = cfg['data_par']
+      self.data_par = data_par
       assert self.data_par > 0
       assert self.num_procs == self.tensor_par * self.pipeline_par * \
         self.data_par, 'tensor * pipeline * data parallelism != num_procs'
-      self.tensor_par_net = cfg['tensor_par_net']
-      self.pipeline_par_net = cfg['pipeline_par_net']
-      self.data_par_net = cfg['data_par_net']
-      self.global_batch_size = cfg['batch_size']
+      self.tensor_par_net = tensor_par_net
+      self.pipeline_par_net = pipeline_par_net
+      self.data_par_net = data_par_net
+      self.global_batch_size = batch_size
       assert self.global_batch_size > 0
-      self.microbatch_size = cfg['microbatch_size']
+      self.microbatch_size = microbatch_size
       assert self.microbatch_size > 0
       assert self.global_batch_size % self.data_par == 0
       self._local_batch_size = self.global_batch_size // self.data_par
       assert self._local_batch_size % self.microbatch_size == 0
       self._num_microbatches = self._local_batch_size // self.microbatch_size
-      self.datatype = cfg['datatype']
-      self.fused_activation = cfg['fused_activation']
-      self.attention_type = cfg['attention_type']
+      self.datatype = datatype
+      self.fused_activation = fused_activation
+      self.attention_type = attention_type
       assert self.attention_type in ['multihead', 'multiquery']
-      self.activation_recompute = cfg['activation_recompute']
+      self.activation_recompute = activation_recompute
       assert self.activation_recompute in ['full', 'attn_only', 'none']
       if self.activation_recompute in ['full', 'attn_only']:
         assert self.training, "We only perform recompute during training"
-      self.pipeline_interleaving = cfg['pipeline_interleaving']
+      self.pipeline_interleaving = pipeline_interleaving
       assert self.pipeline_interleaving > 0, \
         f'Bad pipeline interleaving of {self.pipeline_interleaving}'
       if self.pipeline_par == 1:
         assert self.pipeline_interleaving == 1, \
         f'Bad pipeline interleaving of {self.pipeline_interleaving} with PP=1'
-      self.optimizer_sharding = cfg['optimizer_sharding']
+      self.optimizer_sharding = optimizer_sharding
       if self.optimizer_sharding:
         assert self.data_par > 1, "We perform optimizer sharding with DP > 1"
-      self.tensor_par_comm_type = cfg['tensor_par_comm_type']
+      self.tensor_par_comm_type = tensor_par_comm_type
       self.in_network_reduction = False
       assert self.tensor_par_comm_type in ['ar', 'p2p_rs_ag', 'rs_ag']
-      self.tensor_par_overlap = cfg['tensor_par_overlap']
+      self.tensor_par_overlap = tensor_par_overlap
       assert self.tensor_par_overlap in ['none', 'ring', 'pipe']
       if self.tensor_par_overlap != 'none':
         assert self.tensor_par > 1, "We perform TP comm overlap with TP > 1"
       self._sequence_par = self.tensor_par_comm_type == 'rs_ag'
-      self.seq_par_ag_redo = cfg['seq_par_ag_redo']
+      self.seq_par_ag_redo = seq_par_ag_redo
       if self.seq_par_ag_redo:
         assert self.tensor_par_comm_type == 'rs_ag', "We only redo AG comm"
         assert self._sequence_par, "We only redo AG with sequence parallelism"
@@ -110,16 +133,29 @@ class Llm:
           "We assume no extra AG with full recompute"
       self._pipeline_par_rs_ag = \
         self.tensor_par_comm_type in ['p2p_rs_ag', 'rs_ag']
-      self.data_par_overlap = cfg['data_par_overlap']
+      self.data_par_overlap = data_par_overlap
       if self.data_par_overlap:
         assert self.training, "We only perform DP comm overlap during training"
         assert self.data_par > 1, "We perform DP comm overlap with DP > 1"
-      self.weight_offload = cfg['weight_offload']
-      self.activations_offload = cfg['activations_offload']
-      self.optimizer_offload = cfg['optimizer_offload']
+      self.weight_offload = weight_offload
+      self.activations_offload = activations_offload
+      self.optimizer_offload = optimizer_offload
       if self.optimizer_offload:
         assert self.training, \
           "We only perform optimizer offloading during training"
+
+    def get_json(self):
+      keys = Llm.Execution.fields()
+      values = [
+        self.num_procs, self.tensor_par, self.pipeline_par, self.data_par, self.tensor_par_net,
+        self.pipeline_par_net, self.data_par_net, self.global_batch_size, self.microbatch_size,
+        self.datatype, self.fused_activation, self.attention_type, self.activation_recompute,
+        self.pipeline_interleaving, self.optimizer_sharding, self.tensor_par_comm_type,
+        self.tensor_par_overlap, self.seq_par_ag_redo, self.data_par_overlap,
+        self.weight_offload, self.activations_offload, self.optimizer_offload, self.training
+      ]
+      assert len(keys) == len(values)
+      return dict(zip(keys, values))
 
     def get_peers_json(self):
       peers = {}
@@ -377,111 +413,222 @@ class Llm:
     self._dp_comm_time_link = None
     self._bubble_time = None
 
+  @staticmethod
+  def get_stats_fields():
+    return (
+      'block_fw_flops',
+      'block_fw_flops_time',
+      'block_fw_mem_accessed',
+      'block_fw_mem_time',
+      'block_fw_time',
+      'baseblock_fw_tp_time',
+      'edgeblock_fw_tp_time',
+      'baseblock_fw_tp_time_exposed',
+      'edgeblock_fw_tp_time_exposed',
+      'block_re_flops',
+      'block_re_flops_time',
+      'block_re_mem_accessed',
+      'block_re_mem_time',
+      'block_re_time',
+      'baseblock_recomm_time',
+      'edgeblock_recomm_time',
+      'baseblock_recomm_time_exposed',
+      'edgeblock_recomm_time_exposed',
+      'block_agrad_flops',
+      'block_agrad_flops_time',
+      'block_agrad_mem_accessed',
+      'block_agrad_mem_time',
+      'block_agrad_time',
+      'baseblock_agrad_tp_time',
+      'edgeblock_agrad_tp_time',
+      'baseblock_agrad_tp_time_exposed',
+      'edgeblock_agrad_tp_time_exposed',
+      'block_wgrad_flops',
+      'block_wgrad_flops_time',
+      'block_wgrad_mem_accessed',
+      'block_wgrad_mem_time',
+      'block_wgrad_time',
+      'block_optim_flops',
+      'block_optim_flops_time',
+      'block_optim_mem_accessed',
+      'block_optim_mem_time',
+      'block_optim_time',
+
+      'baseblock_fw_tp_size',
+      'edgeblock_fw_tp_size',
+      'baseblock_bw_tp_size',
+      'edgeblock_bw_tp_size',
+      'baseblock_recomm_size',
+      'edgeblock_recomm_size',
+      'block_fw_pp_size',
+      'block_bw_pp_size',
+      'block_dp_size',
+      'tp_bw_overlap_req',
+      'dp_bw_overlap_req_chunk',
+      'dp_bw_overlap_req_tail',
+
+      'block_weight_space',
+      'block_act_working_space',
+      'block_act_storage_space',
+      'block_act_checkpoint_size',
+      'block_weight_grad_space',
+      'block_weight_grad_space_no_sharding',
+      'block_act_grad_space',
+      'block_optimizer_space',
+
+      'weight_space_with_offload',
+      'act_space_with_offload',
+      'act_checkpoint_size_with_offload',
+      'act_grad_space_with_offload',
+      'weight_grad_space_with_offload',
+      'optimizer_space_with_offload',
+
+      'weight_space',
+      'act_space',
+      'act_checkpoint_size',
+      'act_grad_space',
+      'weight_grad_space',
+      'optimizer_space',
+
+      'fw_time',
+      'bw_time',
+      'optim_step_time',
+      'recompute_time',
+      'recomm_link_time',
+      'recomm_exposed_time',
+      'bubble_time',
+      'tp_comm_link_time',
+      'pp_comm_link_time',
+      'dp_comm_link_time',
+      'tp_comm_exposed_time',
+      'pp_comm_exposed_time',
+      'dp_comm_exposed_time',
+      'fw_offload_exposed_time',
+      'bw_offload_exposed_time',
+      'total_time',
+      'act_offload_bw_req',
+      'weight_offload_bw_req',
+      'optim_offload_bw_req',
+      'offload_mem_bw_req',
+      'proc_mem_tier1_cap_req',
+      'proc_mem_tier2_cap_req',
+      'useful_flops',
+      'compute_efficiency',
+      'system_efficiency',
+      'total_efficiency',
+      'sample_rate')
+
+  def get_stats_values(self):
+    assert self._executed
+    return (
+      self._block_fw_flops,
+      self._block_fw_flops_time,
+      self._block_fw_mem_accessed,
+      self._block_fw_mem_time,
+      self._block_fw_time,
+      self._baseblock_fw_tp_time,
+      self._edgeblock_fw_tp_time,
+      self._baseblock_fw_tp_time_exposed,
+      self._edgeblock_fw_tp_time_exposed,
+      self._block_re_flops,
+      self._block_re_flops_time,
+      self._block_re_mem_accessed,
+      self._block_re_mem_time,
+      self._block_re_time,
+      self._baseblock_recomm_time,
+      self._edgeblock_recomm_time,
+      self._baseblock_recomm_time_exposed,
+      self._edgeblock_recomm_time_exposed,
+      self._block_agrad_flops,
+      self._block_agrad_flops_time,
+      self._block_agrad_mem_accessed,
+      self._block_agrad_mem_time,
+      self._block_agrad_time,
+      self._baseblock_agrad_tp_time,
+      self._edgeblock_agrad_tp_time,
+      self._baseblock_agrad_tp_time_exposed,
+      self._edgeblock_agrad_tp_time_exposed,
+      self._block_wgrad_flops,
+      self._block_wgrad_flops_time,
+      self._block_wgrad_mem_accessed,
+      self._block_wgrad_mem_time,
+      self._block_wgrad_time,
+      self._block_optim_flops,
+      self._block_optim_flops_time,
+      self._block_optim_mem_accessed,
+      self._block_optim_mem_time,
+      self._block_optim_time,
+
+      self._baseblock_fw_tp_size,
+      self._edgeblock_fw_tp_size,
+      self._baseblock_agrad_tp_size,
+      self._edgeblock_agrad_tp_size,
+      self._baseblock_recomm_size,
+      self._edgeblock_recomm_size,
+      self._block_fw_pp_size,
+      self._block_bw_pp_size,
+      self._block_dp_size,
+      self._tp_bw_overlap_req,
+      self._dp_bw_overlap_req_chunk,
+      self._dp_bw_overlap_req_tail,
+
+      self._block_weight_space,
+      self._block_act_working_space,
+      self._block_act_storage_space,
+      self._block_act_checkpoint_size,
+      self._block_weight_grad_space,
+      self._block_weight_grad_space_no_sharding,
+      self._block_act_grad_space,
+      self._block_optimizer_space,
+
+      self.get_weight_space_min(),
+      self.get_act_space_min(),
+      self.get_act_checkpoint_size_min(),
+      self.get_act_grad_space_min(),
+      self.get_weight_grad_space_min(),
+      self.get_optimizer_space_min(),
+
+      self.get_weight_space(),
+      self.get_act_space(),
+      self.get_act_checkpoint_size(),
+      self.get_act_grad_space(),
+      self.get_weight_grad_space(),
+      self.get_optimizer_space(),
+
+      self.get_fw_time(),
+      self.get_bw_time(),
+      self.get_optim_step_time(),
+      self.get_recompute_time(),
+      self.get_recomm_link_time(),
+      self.get_recomm_exposed_time(),
+      self.get_bubble_time(),
+      self.get_tp_comm_link_time(),
+      self.get_pp_comm_link_time(),
+      self.get_dp_comm_link_time(),
+      self.get_tp_comm_exposed_time(),
+      self.get_pp_comm_exposed_time(),
+      self.get_dp_comm_exposed_time(),
+      self.get_fw_offload_overhead(),
+      self.get_bw_offload_overhead(),
+      self.get_total_time(),
+      self.get_act_offload_bw_req(),
+      self.get_weight_offload_bw_req(),
+      self.get_optim_offload_bw_req(),
+      self.get_offload_mem_bw_req(),
+      self.get_mem_tier1_cap_req(),
+      self.get_mem_tier2_cap_req(),
+      self.get_useful_flops(),
+      self.get_compute_efficiency(),
+      self.get_system_efficiency(),
+      self.get_total_efficiency(),
+      self.get_sample_rate())
+
   def get_stats_json(self, include_layers):
     assert self._executed
-    j = {}
-    j['block_fw_flops'] = self._block_fw_flops
-    j['block_fw_flops_time'] = self._block_fw_flops_time
-    j['block_fw_mem_accessed'] = self._block_fw_mem_accessed
-    j['block_fw_mem_time'] = self._block_fw_mem_time
-    j['block_fw_time'] = self._block_fw_time
-    j['baseblock_fw_tp_time'] = self._baseblock_fw_tp_time
-    j['edgeblock_fw_tp_time'] = self._edgeblock_fw_tp_time
-    j['baseblock_fw_tp_time_exposed'] = self._baseblock_fw_tp_time_exposed
-    j['edgeblock_fw_tp_time_exposed'] = self._edgeblock_fw_tp_time_exposed
-    j['block_re_flops'] = self._block_re_flops
-    j['block_re_flops_time'] = self._block_re_flops_time
-    j['block_re_mem_accessed'] = self._block_re_mem_accessed
-    j['block_re_mem_time'] = self._block_re_mem_time
-    j['block_re_time'] = self._block_re_time
-    j['baseblock_recomm_time'] = self._baseblock_recomm_time
-    j['edgeblock_recomm_time'] = self._edgeblock_recomm_time
-    j['baseblock_recomm_time_exposed'] = self._baseblock_recomm_time_exposed
-    j['edgeblock_recomm_time_exposed'] = self._edgeblock_recomm_time_exposed
-    j['block_agrad_flops'] = self._block_agrad_flops
-    j['block_agrad_flops_time'] = self._block_agrad_flops_time
-    j['block_agrad_mem_accessed'] = self._block_agrad_mem_accessed
-    j['block_agrad_mem_time'] = self._block_agrad_mem_time
-    j['block_agrad_time'] = self._block_agrad_time
-    j['baseblock_agrad_tp_time'] = self._baseblock_agrad_tp_time
-    j['edgeblock_agrad_tp_time'] = self._edgeblock_agrad_tp_time
-    j['baseblock_agrad_tp_time_exposed'] = self._baseblock_agrad_tp_time_exposed
-    j['edgeblock_agrad_tp_time_exposed'] = self._edgeblock_agrad_tp_time_exposed
-    j['block_wgrad_flops'] = self._block_wgrad_flops
-    j['block_wgrad_flops_time'] = self._block_wgrad_flops_time
-    j['block_wgrad_mem_accessed'] = self._block_wgrad_mem_accessed
-    j['block_wgrad_mem_time'] = self._block_wgrad_mem_time
-    j['block_wgrad_time'] = self._block_wgrad_time
-    j['block_optim_flops'] = self._block_optim_flops
-    j['block_optim_flops_time'] = self._block_optim_flops_time
-    j['block_optim_mem_accessed'] = self._block_optim_mem_accessed
-    j['block_optim_mem_time'] = self._block_optim_mem_time
-    j['block_optim_time'] = self._block_optim_time
-
-    j['baseblock_fw_tp_size'] = self._baseblock_fw_tp_size
-    j['edgeblock_fw_tp_size'] = self._edgeblock_fw_tp_size
-    j['baseblock_bw_tp_size'] = self._baseblock_agrad_tp_size
-    j['edgeblock_bw_tp_size'] = self._edgeblock_agrad_tp_size
-    j['baseblock_recomm_size'] = self._baseblock_recomm_size
-    j['edgeblock_recomm_size'] = self._edgeblock_recomm_size
-    j['block_fw_pp_size'] = self._block_fw_pp_size
-    j['block_bw_pp_size'] = self._block_bw_pp_size
-    j['block_dp_size'] = self._block_dp_size
-    j['tp_bw_overlap_req'] = self._tp_bw_overlap_req
-    j['dp_bw_overlap_req_chunk'] = self._dp_bw_overlap_req_chunk
-    j['dp_bw_overlap_req_tail'] = self._dp_bw_overlap_req_tail
-
-    j['block_weight_space'] = self._block_weight_space
-    j['block_act_working_space'] = self._block_act_working_space
-    j['block_act_storage_space'] = self._block_act_storage_space
-    j['block_act_checkpoint_size'] = self._block_act_checkpoint_size
-    j['block_weight_grad_space'] = self._block_weight_grad_space
-    j['block_weight_grad_space_no_sharding'] = \
-      self._block_weight_grad_space_no_sharding
-    j['block_act_grad_space'] = self._block_act_grad_space
-    j['block_optimizer_space'] = self._block_optimizer_space
-
-    j['weight_space_with_offload'] = self.get_weight_space_min()
-    j['act_space_with_offload'] = self.get_act_space_min()
-    j['act_checkpoint_size_with_offload'] = self.get_act_checkpoint_size_min()
-    j['act_grad_space_with_offload'] = self.get_act_grad_space_min()
-    j['weight_grad_space_with_offload'] = self.get_weight_grad_space_min()
-    j['optimizer_space_with_offload'] = self.get_optimizer_space_min()
-
-    j['weight_space'] = self.get_weight_space()
-    j['act_space'] = self.get_act_space()
-    j['act_checkpoint_size'] = self.get_act_checkpoint_size()
-    j['act_grad_space'] = self.get_act_grad_space()
-    j['weight_grad_space'] = self.get_weight_grad_space()
-    j['optimizer_space'] = self.get_optimizer_space()
-
-    j['fw_time'] = self.get_fw_time()
-    j['bw_time'] = self.get_bw_time()
-    j['optim_step_time'] = self.get_optim_step_time()
-    j['recompute_time'] = self.get_recompute_time()
-    j['recomm_link_time'] = self.get_recomm_link_time()
-    j['recomm_exposed_time'] = self.get_recomm_exposed_time()
-    j['bubble_time'] = self.get_bubble_time()
-    j['tp_comm_link_time'] = self.get_tp_comm_link_time()
-    j['pp_comm_link_time'] = self.get_pp_comm_link_time()
-    j['dp_comm_link_time'] = self.get_dp_comm_link_time()
-    j['tp_comm_exposed_time'] = self.get_tp_comm_exposed_time()
-    j['pp_comm_exposed_time'] = self.get_pp_comm_exposed_time()
-    j['dp_comm_exposed_time'] = self.get_dp_comm_exposed_time()
-    j['fw_offload_exposed_time'] = self.get_fw_offload_overhead()
-    j['bw_offload_exposed_time'] = self.get_bw_offload_overhead()
-    j['total_time'] = self.get_total_time()
-    j['act_offload_bw_req'] = self.get_act_offload_bw_req()
-    j['weight_offload_bw_req'] = self.get_weight_offload_bw_req()
-    j['optim_offload_bw_req'] = self.get_optim_offload_bw_req()
-    j['offload_mem_bw_req'] = self.get_offload_mem_bw_req()
-    j['proc_mem_tier1_cap_req'] = self.get_mem_tier1_cap_req()
-    j['proc_mem_tier2_cap_req'] = self.get_mem_tier2_cap_req()
-    j['useful_flops'] = self.get_useful_flops()
-    j['compute_efficiency'] = self.get_compute_efficiency()
-    j['system_efficiency'] = self.get_system_efficiency()
-    j['total_efficiency'] = self.get_total_efficiency()
-    j['sample_rate'] = self.get_sample_rate()
+    keys = Llm.get_stats_fields()
+    values = self.get_stats_values()
+    assert len(keys) == len(values), f'{len(keys)} {len(values)}'
+    j = dict(zip(keys, values))
     if include_layers:
       j['layers'] = []
       for layer in self._llm_block:
@@ -2197,7 +2344,7 @@ class Llm:
       f"PP={self.exe.pipeline_par}\n" \
       f"DP={self.exe.data_par}\n" \
       f"Blocks per processor: {self._blocks_per_proc}\n" \
-      f"Execution: {self.exe.cfg};\n" \
+      f"Execution: {self.exe.get_json()};\n" \
       f"System: {self.sys.cfg};\n" \
       f"Weights: {human_format(self.get_weight_space(), 'bytes')};\n" \
       f"Act: {human_format(self.get_act_space(), 'bytes')};\n" \

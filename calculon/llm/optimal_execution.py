@@ -58,7 +58,7 @@ class OptimalExecution(calculon.CommandLine):
     sp.add_argument('-m', '--mbs-break', action='store_true',
                     help='Search across MBS and break earlier when possible')
     sp.add_argument('-t', '--top-n', type=int, default=1,
-                    help='Number of best outputs (0 for all)')
+                    help='Number of best outputs')
     sp.add_argument('-l', '--layers', action='store_true',
                     help='Include layers information in output stats file')
     sp.add_argument('-f', '--fused_activation', type=arg_true_false_all,
@@ -66,6 +66,8 @@ class OptimalExecution(calculon.CommandLine):
 
   @staticmethod
   def run_command(logger, args):
+    assert args.top_n > 0, 'top-n must be > 0'
+
     app = Llm.Application(calculon.io.read_json_file(args.application))
     syst = System(calculon.io.read_json_file(args.system))
 
@@ -104,10 +106,6 @@ class OptimalExecution(calculon.CommandLine):
       good_exe_count += gec
       bad_exe_count += bec
 
-    # If needed, performs a final sorting pass
-    if args.top_n <= 0:
-      best.sort(reverse=True, key=lambda x: x[0])
-
     logger.info(f'Total executions: {exe_count}')
     logger.info(f'Good executions: {good_exe_count}')
     logger.info(f'Bad executions: {bad_exe_count}')
@@ -116,8 +114,7 @@ class OptimalExecution(calculon.CommandLine):
     if args.debug:
       return 0
 
-    none_found = len(best) == 0
-    if none_found:
+    if len(best) == 0:
       if not args.noneok:
         logger.fatal('No acceptable configurations found :(')
         return -1
@@ -154,7 +151,6 @@ class OptimalExecution(calculon.CommandLine):
           fd.write(bytes('\n', 'utf-8'))
     else:
       assert False, f'Unknown file type: {args.output}'
-
 
     return 0
 
@@ -233,7 +229,7 @@ class OptimalExecution(calculon.CommandLine):
                               model = Llm(app, logger)
                               model.compile(
                                 syst,
-                                Llm.Execution(exe_json))
+                                Llm.Execution.from_json(exe_json))
                               model.run(syst)
                               stats = model.get_stats_json(layers)
                               good_exe_count += 1
@@ -254,11 +250,8 @@ class OptimalExecution(calculon.CommandLine):
       current.append(candidate)
     else:
       current.extend(candidate)
-    if quantity <= 0:
-      return current  # don't sort and chop
-    else:
-      current.sort(reverse=True, key=lambda x: x[0])
-      return current[:quantity]
+    current.sort(reverse=True, key=lambda x: x[0])
+    return current[:quantity]
 
 
 calculon.CommandLine.register(OptimalExecution)

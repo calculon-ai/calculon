@@ -126,7 +126,7 @@ class Validation(calculon.CommandLine):
         data[model][mode] = {}
         app_file, exe_file = get_files(model, mode)
         app = Llm.Application(calculon.read_json_file(app_file))
-        exe = Llm.Execution(calculon.read_json_file(exe_file))
+        exe = Llm.Execution.from_json(calculon.read_json_file(exe_file))
         mt = Llm(app, logger)
         mt.compile(syst, exe)
         mt.run(syst)
@@ -242,7 +242,7 @@ class Validation(calculon.CommandLine):
         raw[model][mode] = {}
         app_file, exe_file = get_files(model, mode)
         app = Llm.Application(calculon.read_json_file(app_file))
-        exe = Llm.Execution(calculon.read_json_file(exe_file))
+        exe = Llm.Execution.from_json(calculon.read_json_file(exe_file))
         mt = Llm(app, logger)
         mt.compile(syst, exe)
         mt.run(syst)
@@ -327,7 +327,7 @@ class Validation(calculon.CommandLine):
         data[model][mode] = {}
         app_file, exe_file = get_files(model, mode)
         app = Llm.Application(calculon.read_json_file(app_file))
-        exe = Llm.Execution(calculon.read_json_file(exe_file))
+        exe = Llm.Execution.from_json(calculon.read_json_file(exe_file))
         mt = Llm(app, logger)
         mt.compile(syst, exe)
         mt.run(syst)
