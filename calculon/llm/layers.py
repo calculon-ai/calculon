@@ -552,34 +552,35 @@ class LinearOverlapped(Layer):
     else:
       compute_time_slowed = self.sys.get_processing_time(
         flop_time_slowed, mem_time)
-      # Tiled time computed as fraction of flul time, to model high effective
+      # Tiled time computed as fraction of full time, to model high effective
       # throughput when processing many consequitive tiles
       flop_tile = flop_time / self.num_tiles
       flop_tile_slowed = flop_time_slowed / self.num_tiles
       net_tile = net_time / self.num_tiles
       compute_tile = compute_time / self.num_tiles
+      compute_tile_slowed = compute_time_slowed / self.num_tiles
       overlap_inflection = net_tile - flop_tile_slowed
       # we have one exposed comm tile if tp_comm is not ring,
       # one exposed compute tile, and
       # (Proc - 1) overlapped tiles, where either compute or comm is exposed
       if overlap_inflection > 0:
         # Tcomm is larger than compute, excess is exposed
-        time = compute_tile + (self.num_tiles - 1) * net_tile
-        net_exposed_time = time - (self.num_tiles - 1) * flop_tile_slowed
+        # compute time itself is the compute + mem
+        time = compute_tile + (self.num_tiles - 1) * compute_tile_slowed
+        net_exposed_time = (self.num_tiles - 1) * overlap_inflection
       else:
         # Tcomm is smaller than compute and hidden, but it contributes to
         # compute slowdown due part of compute resources orchestrating comm
         time = compute_tile + (self.num_tiles - 1) * compute_tile + (
           self.num_tiles - 1) * net_tile * self.net.processor_usage
-        net_exposed_time = net_tile * self.net.processor_usage * (
-          self.num_tiles - 1)
+        net_exposed_time = 0
       if self.tp_overlap == 'pipe':
         # If overlap type is pipe, we need to add an exposed comm tile
         # with ring-based overlap, we have a special schedule for comm and avoid
         # sending an extra tile we have in the beginning
         net_exposed_time += net_tile
         time += net_tile
-    self.processing_time = time - net_exposed_time
+    self.processing_time = time
     self.net_exposed_time = net_exposed_time
     self._processed_flag = True
     return self.processing_time
