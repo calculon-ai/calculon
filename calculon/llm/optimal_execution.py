@@ -63,6 +63,10 @@ class OptimalExecution(calculon.CommandLine):
                     help='Include layers information in output stats file')
     sp.add_argument('-f', '--fused_activation', type=arg_true_false_all,
                     default='true', help='Mode of fused activation')
+    sp.add_argument('--no-tp-overlap', action='store_true',
+                    help='Don\'t allow TP overlap')
+    sp.add_argument('--no-dp-overlap', action='store_true',
+                    help='Don\'t allow DP overlap')
 
   @staticmethod
   def run_command(logger, args):
@@ -87,7 +91,8 @@ class OptimalExecution(calculon.CommandLine):
                   (args.debug, args.top_n, args.layers, args.num_procs,
                    args.max_batch_size, args.datatype, app, syst, tp, pp, dp,
                    ppint, batch_size, activation_recompute, optimizer_sharding,
-                   tensor_par_comm_type, args.fused_activation, args.mbs_break))
+                   tensor_par_comm_type, args.fused_activation, args.mbs_break,
+                   not args.no_tp_overlap, not args.no_dp_overlap))
 
     # Runs parallel searches
     start_time = datetime.datetime.now()
@@ -166,7 +171,8 @@ class OptimalExecution(calculon.CommandLine):
   @staticmethod
   def search(debug, top_n, layers, num_procs, max_batch_size, datatype,
              app, syst, tp, pp, dp, ppint, batch_size, activation_recompute,
-             optimizer_sharding, tensor_par_comm_type, fused_acts, mbs_break):
+             optimizer_sharding, tensor_par_comm_type, fused_acts, mbs_break,
+             allow_tp_overlap, allow_dp_overlap):
     num_nets = syst.num_networks
 
     best = []
@@ -179,8 +185,10 @@ class OptimalExecution(calculon.CommandLine):
     can_redo = Llm.can_redo_ag(tensor_par_comm_type,
                                activation_recompute)
     for seq_par_ag_redo in pick(can_redo, [True, False], [False]):
-      for data_par_overlap in pick(dp>1, [True, False], [False]):
-        for tensor_par_overlap in pick(tp>1, ['none', 'ring', 'pipe'], ['none']):
+      for data_par_overlap in pick(dp>1 and allow_dp_overlap, [True, False],
+                                   [False]):
+        for tensor_par_overlap in pick(tp>1 and allow_tp_overlap,
+                                       ['none', 'ring', 'pipe'], ['none']):
           for weight_offload in pick(has_mem2, [True, False], [False]):
             if activation_recompute == 'full' or not has_mem2:
               activations_offloads = [False]

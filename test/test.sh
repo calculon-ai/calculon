@@ -42,7 +42,7 @@ echo -e "\n\n"
 
 # Llm optimal execution
 echo -e "### Testing llm-optimal-execution (float16) (using -f)"
-./bin/calculon loe models/turing-530B.json 5128 2520 float16 systems/h100_80g_nvl8.json /tmp/calculon_530B_fp16.json -t 3 -f False
+./bin/calculon loe models/turing-530B.json 5128 2520 float16 systems/h100_80g_nvl8.json /tmp/calculon_530B_fp16.json -t 3 -f False --no-tp-overlap
 echo -e "\n"
 
 echo -e "### Testing llm-optimal-execution (float8) (using -m)"
