@@ -1586,11 +1586,11 @@ class Llm:
     self._baseblock_bw_time_no_offload = (
       self._block_re_time + self._baseblock_recomm_time_exposed +
       self._block_agrad_time + self._block_wgrad_time +
-      self._baseblock_agrad_tp_time)
+      self._baseblock_agrad_tp_time_exposed)
     self._edgeblock_bw_time_no_offload = (
       self._block_re_time + self._edgeblock_recomm_time_exposed +
       self._block_agrad_time + self._block_wgrad_time +
-      self._edgeblock_agrad_tp_time + chunk_bw_pp_time)
+      self._edgeblock_agrad_tp_time_exposed + chunk_bw_pp_time)
     self._baseblock_bw_offload_overhead = max(
       0, self.get_bw_offload_time() + self._block_agrad_mem_time +
       self._block_wgrad_mem_time -
@@ -1617,7 +1617,7 @@ class Llm:
       self._block_agrad_mem_time + self._block_wgrad_mem_time +
       self._block_re_mem_time)
     block_dp_compute_time = (
-      self._block_agrad_flops_time + self._block_agrad_flops_time +
+      self._block_agrad_flops_time + self._block_wgrad_flops_time +
       self._block_re_flops_time)
     if not self.exe.optimizer_sharding:
       # If optimizer is not sharded, we can overlap optimizer step with
