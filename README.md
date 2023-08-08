@@ -1,3 +1,4 @@
+[![DOI](https://zenodo.org/badge/660734586.svg)](https://zenodo.org/badge/latestdoi/660734586)
 # Calculon - Co-design for large scale parallel applications
 
 ## Installing (optional)
