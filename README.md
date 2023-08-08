@@ -7,6 +7,18 @@ $> make install
 $> calculon -h
 ```
 
+## Testing and validation (optional)
+To make sure that the current build is working, use
+
+``` sh
+$> make test
+```
+To validate Calculon performance modeling against Megatron run on NVIDIA's Selene A100-based supercomputer with results published in ["Sequence parallelism" paper](https://arxiv.org/abs/2205.05198), use
+
+``` sh
+$> calculon llm-validation
+```
+
 ## Running
 
 If Calculon is installed (see above), run it like this:
@@ -37,8 +49,13 @@ Run a single calculation for LLM (~1 sec):
 $> calculon llm models/megatron-1T.json examples/3072_t4_p64_d12_mbs4_full.json systems/a100_80g.json -
 ```
 
-Run a system execution optimizer for LLM (~5 mins):
+Run a system execution optimizer for LLM (~1 min):
 ``` sh
-$> calculon llm-optimal-execution models/megatron-1T.json 4096 3072 float16 systems/a100_80g.json -e opt_exe.json -s opt_stats.json -m
+$> calculon llm-optimal-execution models/turing-530B.json 5128 2520 float16 systems/a100_80g.json output.json -m
 ```
-`opt_exe.json` will contain the optimal way to run Megatron-1T across 4096 A100 GPUs.
+`opt_exe.json` will contain the optimal way to run Turing-530B across 5128 A100 GPUs.
+
+To store results from all successful runs from the same experiment, run a special system optimizer (~1 min):
+``` sh
+$> calculon llm-all-executions models/turing-530B.json 5128 2520 float16 systems/a100_80g.json all_output.csv
+```

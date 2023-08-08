@@ -54,7 +54,8 @@ class AllExecutions(calculon.CommandLine):
     sp.add_argument('system', type=str,
                     help='File path to system configuration')
     sp.add_argument('output', type=str,
-                    help='File path to the output file')
+                    help='File path to the output file'
+                    " ('*.csv', '*.csv.gz')")
     sp.add_argument('-c', '--cpus', type=int, default=psutil.cpu_count(logical=False),
                     help='CPUs to use for parallelization')
     sp.add_argument('-n', '--noneok', action='store_true',
