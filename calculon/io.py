@@ -16,7 +16,20 @@
 """
 import gzip
 import json
+import numpy as np
 
+
+class NpEncoder(json.JSONEncoder):
+  def default(self, obj):
+    if isinstance(obj, np.integer):
+      return int(obj)
+    if isinstance(obj, np.floating):
+      return float(obj)
+    if isinstance(obj, np.ndarray):
+      return obj.tolist()
+    if isinstance(obj, np.bool_):
+      return bool(obj)
+    return super(NpEncoder, self).default(obj)
 
 def is_json_extension(filename):
   return filename.endswith('.json') or filename.endswith('.json.gz')
@@ -27,7 +40,7 @@ def write_json_file(jdata, filename):
   opener = gzip.open if filename.endswith('.gz') else open
   indent = None if filename.endswith('.gz') else 2
   with opener(filename, 'wb') as fd:
-    fd.write(bytes(json.dumps(jdata, indent=indent), 'utf-8'))
+    fd.write(bytes(json.dumps(jdata, indent=indent, cls=NpEncoder), 'utf-8'))
 
 
 def read_json_file(filename):
