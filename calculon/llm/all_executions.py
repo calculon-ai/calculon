@@ -75,6 +75,8 @@ class AllExecutions(calculon.CommandLine):
 
   @staticmethod
   def get_batch_size(data_par, max_batch_size):
+    if data_par > max_batch_size:
+      return None
     last = data_par
     while True:
       if last + data_par > max_batch_size:
@@ -94,7 +96,8 @@ class AllExecutions(calculon.CommandLine):
         dp = Llm.get_data_parallelism(num_procs, tp, pp)
         for ppint in Llm.get_valid_pipeline_interleavings(app.num_blocks, pp):
           batch_size = AllExecutions.get_batch_size(dp, max_batch_size)
-          assert batch_size % dp == 0
+          if batch_size is None:
+            continue
           for activation_recompute in ['full', 'attn_only', 'none']:
             for optimizer_sharding in pick(dp>1, [True, False], [False]):
               for tensor_par_comm_type in ['ar', 'p2p_rs_ag', 'rs_ag']:
