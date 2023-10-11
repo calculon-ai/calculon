@@ -44,7 +44,7 @@ setup(
   author='Michael Isaev',
   author_email='michael.v.isaev@gmail.com',
   license='Apache 2',
-  url='http://github.com/paragraph-sim/calculon',
+  url='http://github.com/calculon-ai/calculon',
   packages=['calculon', 'calculon.llm'],
   scripts=['bin/calculon'],
   install_requires=[],
