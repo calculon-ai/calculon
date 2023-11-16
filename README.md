@@ -47,3 +47,13 @@ To validate Calculon performance modeling against Megatron run on NVIDIA's Selen
 ``` sh
 $> PYTHONPATH=. ./bin/calculon llm-validation
 ```
+
+## Publications
+
+* Calculon: A Methodology and Tool for High-Level Co-Design of Systems and Large Language Models
+Mikhail Isaev, Nic McDonald, Larry Dennison, Richard Vuduc
+[Paper](https://dl.acm.org/doi/pdf/10.1145/3581784.3607102)
+
+* Scaling Infrastructure to Support Multi-Trillion Parameter LLM Training
+Mikhail Isaev, Nic McDonald, Richard Vuduc
+[Paper](https://openreview.net/pdf?id=rqn2v1Ltgn0)
