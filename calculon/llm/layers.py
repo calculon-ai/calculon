@@ -62,6 +62,8 @@ class Layer:
   def get_stats_json(self):
     return {
       'name': self.name,
+      'inputs_size': self.inputs_size,
+      'outputs_size': self.output_size,
       'fw_flops': self.get_fw_flops(),
       'fw_mem_accessed': self.get_fw_mem_accessed(),
       'fw_arithmetic_intensity': self.get_fw_arithmetic_intensity(),
